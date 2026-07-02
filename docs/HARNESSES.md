@@ -11,8 +11,17 @@ Every harness lives in its own directory:
 ```
 harnesses/<name>/
 ├── system_prompt.md   # the agent's operating instructions
-└── harness.yaml       # declarative config consumed by create_harness()
+└── harness.yaml       # illustrative declarative config (see note below)
 ```
+
+> **Status — illustrative reference, not yet loader-consumed.** These `harness.yaml`
+> files document the *intended* declarative shape of the three Layer-1 supervisors.
+> They are **not** parsed by the shipped CLI today (a YAML→`create_harness` loader is
+> on the roadmap). For working, end-to-end examples that actually call
+> `create_harness()`, see `scenarios/` — those are the live-validated path. The
+> supervisors here also reference Gateway tools (`search_registry`, `siem_query`,
+> `enrich_ioc`, …) whose handlers are reference stubs under `tools/` and are not yet
+> wired to a live Gateway.
 
 All content is generic security-operations material. There are no organization-,
 customer-, or company-specific references, no hardcoded AWS account IDs, and no role
@@ -46,9 +55,12 @@ an ambiguous alert from Haiku to Sonnet for a single call).
   model never guesses numbers.
 - **Human-in-the-loop where stakes are high.** High-consequence actions (publishing a
   detection rule, containing a host) go through an `inline_function` gate that pauses
-  the loop and hands control back to a human. These gates are registered in code
-  (`core.tool_inline(...)`, because their input schema is defined in code) and named
-  in `allowedTools`; the loader injects the matching tool definition at create time.
+  the loop (`stop_reason=tool_use`) and returns the call to your code. Gates are
+  declared with `core.tool_inline(...)` (their input schema lives in code) and passed
+  to `create_harness(tools=[...])` in the scenarios. **Note:** the scenarios currently
+  demonstrate the *pause* half of the contract; sending the analyst decision back
+  (the two-message `toolUse`→`toolResult` resume) is a roadmap item — see the
+  Roadmap in the README.
 - **Managed memory with SEMANTIC + SUMMARIZATION.** Every harness declares
   `managedMemoryConfiguration` with both strategies. `actorId` namespaces isolate
   memory per analyst / per tenant, and verdicts persist as a team feedback loop.

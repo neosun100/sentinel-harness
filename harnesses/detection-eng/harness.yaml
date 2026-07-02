@@ -41,8 +41,8 @@ tools:
 allowedTools:
   # EXPLICIT allowlist — never ['*'].
   - code_interpreter               # deterministic lint / structural validation
-  - gateway___invoke_specialist    # delegate to the adversarial-reviewer specialist
-  - gateway___sigma_yara_lint      # hosted deterministic rule linter
+  - "@gateway/invoke_specialist"    # delegate to the adversarial-reviewer specialist
+  - "@gateway/sigma_yara_lint"      # hosted deterministic rule linter
   - request_publish_approval       # inline_function HITL publish gate (see note)
 
 # NOTE on request_publish_approval:

@@ -48,7 +48,7 @@ _data = boto3.client(
 # --- Model IDs: use the cross-region-inference *pattern*; do not pin a version you
 #     can't verify. Override via env if you want a specific pinned id. ---
 MODEL_SONNET = os.environ.get("SENTINEL_MODEL_SONNET", "global.anthropic.claude-sonnet-4-6")
-MODEL_HAIKU = os.environ.get("SENTINEL_MODEL_HAIKU", "global.anthropic.claude-haiku-4-5-20251001-v1:0")
+MODEL_HAIKU = os.environ.get("SENTINEL_MODEL_HAIKU", "global.anthropic.claude-haiku-4-5")
 MODEL_OPUS = os.environ.get("SENTINEL_MODEL_OPUS", "us.anthropic.claude-opus-4-5-20251101-v1:0")
 
 
@@ -159,9 +159,12 @@ def tool_gateway(name, gateway_arn, outbound_auth=None) -> dict:
 
 
 def tool_inline(name, description, input_schema) -> dict:
-    """Human-in-the-loop / client-side gate. The harness pauses when the agent calls
-    this and hands control back to you (approve/reject). Kills hallucination on
-    high-stakes security decisions."""
+    """Human-in-the-loop / client-side gate. When the agent calls this tool the harness
+    PAUSES the loop (stop_reason=tool_use) and returns the call to your code. The
+    scenarios demonstrate this pause half of the contract. To fully close the loop,
+    send the analyst decision back via the two-message resume (assistant toolUse +
+    user toolResult with the matching toolUseId) on the next invoke — a roadmap item.
+    Use for high-stakes security decisions (publish / contain / offensive step)."""
     return {"type": "inline_function", "name": name,
             "config": {"inlineFunction": {"description": description, "inputSchema": input_schema}}}
 
@@ -177,9 +180,13 @@ def managed_memory(strategies=None, expiry_days=None) -> dict:
     return {"managedMemoryConfiguration": cfg}
 
 
-def byo_memory(arn, messages_count=None) -> dict:
+def byo_memory(arn, retrieval_config=None) -> dict:
+    """Bring-your-own AgentCore Memory by ARN. Optional ``retrieval_config`` is the
+    documented BYO tuning knob (per-namespace topK / relevanceScore / strategyId).
+    Note: working-window size is a separate *truncation* concern (slidingWindow
+    numMessages), not a memory field — so it is intentionally not exposed here."""
     cfg = {"arn": arn}
-    if messages_count is not None: cfg["messagesCount"] = messages_count
+    if retrieval_config is not None: cfg["retrievalConfig"] = retrieval_config
     return {"agentCoreMemoryConfiguration": cfg}
 
 

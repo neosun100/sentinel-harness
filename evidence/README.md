@@ -32,12 +32,13 @@ This is the answer to "a harness is single-agent": parallelism comes from runnin
 
 | Check | Result |
 |---|---|
-| `generator_and_reviewer_are_separate_harnesses` | ✅ `true` |
-| `adversarial_review_ran` | ✅ `true` — a separate reviewer harness attacked the generated Sigma rule |
-| `hit_publish_human_gate` | ✅ `true` — publishing required an analyst sign-off via `inline_function` |
+| `generator_and_reviewer_are_separate_harnesses` | ✅ `true` — generator and reviewer are distinct harnesses |
+| `adversarial_review_ran` | ⚠️ reviewer was **invoked**, but in this captured run it returned only a preamble and did not emit the parseable `VERDICT: approve\|revise` line (`approved_signal:false`). Re-run with larger reviewer `max_iterations`/`max_tokens` to capture a full verdict. |
+| `hit_publish_human_gate` | ✅ `true` — the publish step required analyst sign-off via `inline_function` (pause reached; see HITL note below) |
 
-Demonstrates **generation ≠ evaluation**: the reviewer is a distinct harness with no
-self-approval bias, and a human gates the publish.
+Demonstrates the **structure** of generation ≠ evaluation (the reviewer is a distinct
+harness with no self-approval bias) and a human publish gate. The reviewer's *content*
+verdict was not fully captured in this run — an honest caveat, not a hidden failure.
 
 ## Honest limitations (as observed live)
 

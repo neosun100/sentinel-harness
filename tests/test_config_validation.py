@@ -304,13 +304,14 @@ def test_managed_memory_empty_shape():
 
 
 def test_byo_memory_shape():
-    mem = sh.byo_memory("arn:aws:bedrock-agentcore:us-east-1:000:memory/m", messages_count=20)
+    rc = {"/facts/{actorId}/": {"topK": 5, "relevanceScore": 0.5}}
+    mem = sh.byo_memory("arn:aws:bedrock-agentcore:us-east-1:000:memory/m", retrieval_config=rc)
     cfg = mem["agentCoreMemoryConfiguration"]
     assert cfg["arn"].startswith("arn:aws:bedrock-agentcore:")
-    assert cfg["messagesCount"] == 20
+    assert cfg["retrievalConfig"] == rc
 
 
-def test_byo_memory_without_count():
+def test_byo_memory_without_retrieval_config():
     mem = sh.byo_memory("arn:aws:bedrock-agentcore:us-east-1:000:memory/m")
     assert mem["agentCoreMemoryConfiguration"] == {
         "arn": "arn:aws:bedrock-agentcore:us-east-1:000:memory/m"

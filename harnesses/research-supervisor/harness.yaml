@@ -36,12 +36,12 @@ tools:
 
 allowedTools:
   # EXPLICIT allowlist — never ['*']. The agent may call only these.
-  - gateway___search_registry      # discover specialist agents by capability
-  - gateway___invoke_specialist    # deterministic A2A delegation to a specialist
-  - gateway___nvd_lookup           # CVE / CVSS lookup
-  - gateway___epss_kev             # EPSS score + CISA KEV enrichment
-  - gateway___attack_lookup        # MITRE ATT&CK technique lookup
-  - gateway___web_search           # egress-controlled web search (text, no download)
+  - "@gateway/search_registry"      # discover specialist agents by capability
+  - "@gateway/invoke_specialist"    # deterministic A2A delegation to a specialist
+  - "@gateway/nvd_lookup"           # CVE / CVSS lookup
+  - "@gateway/epss_kev"             # EPSS score + CISA KEV enrichment
+  - "@gateway/attack_lookup"        # MITRE ATT&CK technique lookup
+  - "@gateway/web_search"           # egress-controlled web search (text, no download)
 
 memory:
   # Managed memory: SEMANTIC (fact recall across sessions) + SUMMARIZATION

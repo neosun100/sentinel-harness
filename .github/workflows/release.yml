@@ -1,0 +1,51 @@
+name: release
+
+# Cut a GitHub Release when a v* tag is pushed. Builds the sdist/wheel,
+# extracts the matching CHANGELOG section as release notes, and attaches artifacts.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: Smoke-test the built package
+        run: |
+          python -m pip install dist/*.whl
+          SENTINEL_EXECUTION_ROLE_ARN=arn:aws:iam::000000000000:role/test sentinel --help
+          python -c "import sentinel_harness; print(sentinel_harness.__version__)"
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" {grab=1; next}
+            grab && /^## \[/ {exit}
+            grab {print}
+          ' CHANGELOG.md > release-notes.md
+          echo "Extracted $(wc -l < release-notes.md) lines for $VERSION"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          files: dist/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}

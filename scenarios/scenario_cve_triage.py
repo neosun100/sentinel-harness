@@ -69,7 +69,7 @@ def run(arn):
 
     RESULT["verdict"] = {
         "hit_human_review_gate": "request_human_review" in r["tools_used"],
-        "did_deterministic_calc": ("code_interpreter" in r["tools_used"]) or ("29" in r["text"]),
+        "did_deterministic_calc": "code_interpreter" in r["tools_used"],
         "note": "CVE triage -> deterministic compute -> mandatory human-review gate, "
                 "all via harness config. Zero orchestration code."}
     return RESULT

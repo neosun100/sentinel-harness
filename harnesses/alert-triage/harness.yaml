@@ -39,10 +39,10 @@ tools:
 allowedTools:
   # EXPLICIT allowlist — never ['*'].
   - code_interpreter                  # deterministic counts / ratios
-  - gateway___siem_query              # read-only SIEM query
-  - gateway___asset_lookup            # asset inventory / blast-radius
-  - gateway___enrich_ioc              # hash / domain / IP reputation
-  - gateway___create_ticket           # ticketing write
+  - "@gateway/siem_query"              # read-only SIEM query
+  - "@gateway/asset_lookup"            # asset inventory / blast-radius
+  - "@gateway/enrich_ioc"              # hash / domain / IP reputation
+  - "@gateway/create_ticket"           # ticketing write
   - request_containment_approval      # inline_function HITL containment gate (see note)
 
 # NOTE on request_containment_approval:

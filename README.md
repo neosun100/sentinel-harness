@@ -1,94 +1,142 @@
-<h1 align="center">sentinel-harness</h1>
+<div align="center">
 
-<p align="center">
-  <b>Production security-operations agents, built as <i>configuration</i> — on Amazon Bedrock AgentCore Harness.</b><br/>
-  <sub>Strategy iteration · attack simulation · foundation — a reference SecOps agent platform. Zero orchestration code.</sub>
-</p>
+<img src="assets/logo.svg" width="140" alt="sentinel-harness logo"/>
 
-<p align="center">
+# sentinel-harness
+
+**Production security-operations agents, built as _configuration_ — on Amazon Bedrock AgentCore Harness.**
+
+<sub>Declare an agent (model · prompt · tools · skills · memory · limits); AWS runs the loop. Zero orchestration code.</sub>
+
+<p>
   <img alt="license" src="https://img.shields.io/badge/license-MIT--0-30d158"/>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-2997ff"/>
   <img alt="bedrock-agentcore" src="https://img.shields.io/badge/Amazon%20Bedrock-AgentCore%20Harness-ff9900"/>
-  <img alt="live-validated" src="https://img.shields.io/badge/scenarios-live%20validated-1D8102"/>
+  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-42%20passing-1D8102"/>
+  <img alt="status" src="https://img.shields.io/badge/status-Layer%201%20live%20%C2%B7%20L2%2FL3%20design-8b5cf6"/>
 </p>
+
+[Quickstart](#-quickstart) · [Architecture](#-architecture) · [Scenarios](#-scenarios--evidence) · [Status matrix](#-status-validated--designed--missing) · [Design principles](#-design-principles) · [Extending](#-extending) · [Roadmap](#-roadmap) · [Docs](docs/)
+
+</div>
 
 ---
 
 ## Why
 
-A SecOps team usually already has models, internal MCP servers, and a pile of skills — but **no framework to circulate those capabilities** so that "what one analyst has, everyone has." `sentinel-harness` is that framework, built on the [Amazon Bedrock AgentCore **Harness**](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness.html): you declare an agent (model + system prompt + tools + skills + memory + limits) and AWS runs the whole agent loop. Swapping a model, adding a tool, or replacing a skill is **a config change, not a rebuild**.
+A security team usually already has models, internal MCP servers, and a pile of skills — what's missing is a **framework to circulate them** so that "what one analyst has, everyone has." `sentinel-harness` is a reference implementation of that framework on the [Amazon Bedrock AgentCore **Harness**](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness.html). You declare an agent as configuration and AWS runs the whole agent loop — so swapping a model, adding a tool, or replacing a skill is **a config change, not a rebuild**.
 
-Everything here is **generic security-ops** content and **runs on a non-production dev account** — no proprietary data, no real vulnerable assets, no real malware.
+Everything here is **generic SecOps content** built and tested against a **non-production** account — no proprietary data, no real vulnerable assets, no real malware. It reverse-engineers a common three-layer SecOps agent architecture into AgentCore primitives, borrowing verified patterns from four AWS samples.
 
-## The model: three layers
+> **What's real vs. aspirational — read this first.** Layer 1 ships **three live-validated scenarios** and a library-grade core. Layers 2–3 are **design specs with reference stubs**, not runnable end-to-end yet. The [status matrix](#-status-validated--designed--missing) is precise about what's proven, designed, or missing. This honesty is deliberate — see the self-audit in [`docs/FIDELITY-REPORT.md`](docs/FIDELITY-REPORT.md).
 
-| Layer | What it does | How it maps to the harness |
-|---|---|---|
-| **1 · Strategy iteration** | research → detection-rule generation + cross-review → alert triage → feedback loop | `research-supervisor` + specialists; `detection-eng` (generate → adversarial review → human-merge gate); `alert-triage`; verdicts persisted to Memory to close the loop |
-| **2 · Simulation** | BAS / attack-path / adversary emulation (Play Mode, human-confirmed) | long-running Runtime skeleton; every offensive step behind an `inline_function` human gate |
-| **3 · Foundation** | sandbox isolation · platform self-iteration · AI coding · cyber-skills | one microVM per session + PreToolUse security hooks; Agent Factory provisioning; LiteLLM + Gateway; versioned `SKILL.md` skills + a central tool/skill registry |
+## 🏛 Architecture
 
-See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full design and **[docs/BLUEPRINT.md](docs/BLUEPRINT.md)** for the layer→primitive mapping and the AWS-sample patterns it borrows.
+<div align="center"><img src="assets/architecture.png" width="960" alt="sentinel-harness architecture"/></div>
 
-## ✅ Live-validated scenarios
+Callers authenticate via OAuth/JWT (humans) or SigV4 (services); third-party secrets sit in the AgentCore Identity token vault (the agent never sees raw credentials). A **two-plane API** (control + streaming data) drives a **managed harness** running in a per-session Firecracker microVM — the agent loop, config fields, primitives (Memory / Gateway / Browser / Code Interpreter), an `inline_function` human-in-the-loop gate, egress control, and the multi-harness + supervisor pattern. On the right, the three SecOps layers. Full write-up: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); layer→primitive mapping and borrowed patterns: [`docs/BLUEPRINT.md`](docs/BLUEPRINT.md).
 
-Each scenario is a runnable script under [`scenarios/`](scenarios/), validated against the GA API on a non-production account. Evidence lands in [`evidence/`](evidence/).
+## 📊 Status: validated / designed / missing
 
-| Scenario | Proves | Layer |
-|---|---|---|
-| [`scenario_cve_triage.py`](scenarios/scenario_cve_triage.py) | CVE triage with **deterministic compute** (code interpreter) + a **mandatory human-in-the-loop gate** + managed memory — zero orchestration code | L1 research |
-| [`scenario_multi_harness.py`](scenarios/scenario_multi_harness.py) | **Multi-harness parallelism** (3 specialists + a supervisor) — the answer to "a harness is single-agent"; measured wall-clock speedup vs serial | L1 collaboration |
-| [`scenario_detection_gen.py`](scenarios/scenario_detection_gen.py) | Detection-rule generation with an **independent adversarial-reviewer harness** (generation ≠ evaluation) + a publish human-gate | L1 detection |
+Honest build status per capability — mirrors the self-audit.
 
-## Design principles (baked into the core library)
+| Layer | Capability | Status | Where |
+|---|---|:--:|---|
+| **L1 Strategy** | CVE triage (deterministic calc + HITL pause + memory) | 🟢 **live-validated** | `scenarios/scenario_cve_triage.py` |
+| **L1 Strategy** | Multi-harness parallel + supervisor (≈2.6× speedup) | 🟢 **live-validated** | `scenarios/scenario_multi_harness.py` |
+| **L1 Strategy** | Detection-gen + independent adversarial reviewer + publish gate | 🟡 **built; reviewer verdict under-captured** | `scenarios/scenario_detection_gen.py` |
+| **L1 Strategy** | Alert triage (TP/FP, correlate, contain) | 🟠 **designed** (illustrative harness.yaml) | `harnesses/alert-triage/` |
+| **L1 Strategy** | Research supervisor → specialist delegation via registry/A2A | 🟠 **designed** | `harnesses/research-supervisor/`, `docs/BLUEPRINT.md` |
+| **L1 Strategy** | Feedback loop closure (teach → recall) | 🟠 **designed** (memory writes proven; recall not yet) | `docs/BLUEPRINT.md` |
+| **L2 Simulation** | BAS / attack-path / adversary emulation (Play Mode) | ⚪ **design only** | `docs/BLUEPRINT.md` |
+| **L3 Foundation** | Sandbox hooks · Agent Factory · LiteLLM · Gateway registry · CDK | ⚪ **design only** | `docs/BLUEPRINT.md` |
+| **Core** | Harness lifecycle library + builders (create/invoke/tools/memory) | 🟢 **library-grade, tested** | `sentinel_harness/core.py`, 42 offline tests |
+| **Tools** | `sigma_yara_lint` (real, deterministic, LLM-free) | 🟢 **functional** | `tools/sigma_yara_lint/` |
+| **Tools** | `nvd_lookup` / `epss_kev` / `attack_lookup` / `web_search` | 🟡 **reference stubs** (offline-safe) | `tools/` |
 
-- **Multi-agent = multiple harnesses + a supervisor.** One harness is single-agent + multi-tool; parallelism comes from running many and synthesizing.
-- **Human-in-the-loop kills hallucination.** High-stakes security decisions pass through an `inline_function` gate; an independent reviewer harness attacks generated artifacts.
-- **Egress is controlled.** Prefer a `web_search`-style tool (text only) over raw download; there is no raw-download tool.
-- **Auth done right.** An IAM *execution role* scopes which internal AWS resources the agent may touch (least privilege — not per-person mapping). Human callers use OAuth/JWT (`customJWTAuthorizer`); third-party secrets live in the AgentCore Identity token vault — the agent never sees raw credentials.
-- **No lock-in.** When config isn't enough, `agentcore export harness` emits editable Strands code that runs on the same platform.
+🟢 built & validated · 🟡 built, partial · 🟠 designed with reference config · ⚪ design narrative only.
 
-## Quick start
+## 🚀 Quickstart
 
 ```bash
-git clone <this repo> && cd sentinel-harness
-pip install -e .
+git clone https://github.com/neosun100/sentinel-harness && cd sentinel-harness
+pip install -e .          # Python 3.10+ ; installs the `sentinel` CLI
 
-# configure (12-factor; nothing hardcoded)
+# offline tests need no AWS
+SENTINEL_EXECUTION_ROLE_ARN=arn:aws:iam::000000000000:role/test pytest tests/ -q   # 42 passing
+
+# configure for live runs (12-factor — nothing hardcoded)
 export AWS_PROFILE=<your-non-prod-profile>          # never production
 export SENTINEL_REGION=us-east-1
 export SENTINEL_EXECUTION_ROLE_ARN="arn:aws:iam::<acct>:role/<your-harness-role>"
 
-# run a scenario end-to-end (creates harnesses, invokes, prints evidence)
+# run a live-validated scenario (creates harnesses, invokes, writes evidence/)
 python scenarios/scenario_cve_triage.py
 python scenarios/scenario_multi_harness.py
-
-# or via the CLI
-sentinel run-scenario cve_triage
-sentinel cleanup sentinel_        # tear down all harnesses this repo created
+sentinel cleanup sentinel_        # tear down every harness this repo created
 ```
 
-The execution-role least-privilege policy is in **[docs/SETUP.md](docs/SETUP.md)**.
+Execution-role policy (least-privilege, and **why** it omits `InvokeAgentRuntimeCommand`): [`docs/SETUP.md`](docs/SETUP.md).
 
-## Repo layout
+## 🔬 Scenarios & evidence
+
+Each scenario is runnable end-to-end and writes a result JSON to [`evidence/`](evidence/) (account IDs scrubbed). Captured live-run outcomes:
+
+| Scenario | What it proves | Result |
+|---|---|---|
+| **CVE triage** | one harness = deterministic compute (code interpreter) + a mandatory HITL pause + managed memory, zero orchestration code | HITL gate fired; CVSS math ran in-sandbox |
+| **Multi-harness parallel** | "a harness is single-agent" → parallelism via multiple harnesses + a supervisor | **≈2.6×** wall-clock speedup vs serial |
+| **Detection-gen** | generation ≠ evaluation: an **independent** reviewer harness + a publish human-gate | separate harnesses + publish gate reached (reviewer verdict under-captured — see [evidence/README.md](evidence/README.md)) |
+
+## 🧭 Design principles
+
+- **Multi-agent = multiple harnesses + a supervisor.** One harness is single-agent + multi-tool; parallelism and role-decomposition come from running many and synthesizing.
+- **Human-in-the-loop kills hallucination.** High-stakes actions pass through an `inline_function` gate; an independent reviewer harness attacks generated artifacts (no self-approval bias).
+- **Egress is controlled.** Prefer a `web_search`-style tool (text only) over raw download; there is no raw-download tool.
+- **Auth done right.** An IAM *execution role* scopes internal AWS access (least privilege — not per-person mapping). Humans use OAuth/JWT; secrets live in the token vault. `allowedTools` scopes the LLM's tool choice but **cannot** gate `InvokeAgentRuntimeCommand` — the only control there is withholding the IAM action.
+- **No lock-in.** When config isn't enough, `agentcore export harness` emits editable Strands code on the same compute / observability / identity.
+
+## 🧩 Extending
+
+- **New scenario** → add `scenarios/scenario_<name>.py` using `sentinel_harness.core` (see existing three for the pattern); write evidence to `evidence/`; leave teardown to `sentinel cleanup`.
+- **New tool** → drop a handler under `tools/<name>/` (keep deterministic tools LLM-free, like `sigma_yara_lint`) and wire it into an AgentCore Gateway as an MCP target.
+- **New skill** → add `skills/<name>/SKILL.md` (AgentSkills.io format: YAML frontmatter + body); attach via `create_harness(skills=[...])`.
+- **New harness** → follow `harnesses/<name>/` (a `system_prompt.md` + an illustrative `harness.yaml`); until the YAML loader lands (roadmap), construct via `core.create_harness(...)` in a scenario.
+
+Borrowed patterns (see [`docs/BLUEPRINT.md`](docs/BLUEPRINT.md)): supervisor→specialist delegation (pluggable-agentic-ai-framework), long-running session + self-restart (long-running-app-harness), zero-orchestration tool selection (serverless-image-editing-harness), Agent Factory provisioning (agentic-chatbot-accelerator).
+
+## 🗺 Roadmap
+
+- [ ] **YAML→harness loader** so `harnesses/*.yaml` become live (env interpolation, `system_prompt.md` resolution, gateway/allowedTools mapping).
+- [ ] **Close the HITL loop** — `invoke_with_tool_result()` two-message resume + a full pause→approve→resume evidence trace.
+- [ ] **Layer 2** — a minimal long-running Runtime + one HITL-gated simulated `exec_technique`.
+- [ ] **Layer 3** — runnable tool/skill registry + one PreToolUse sandbox hook.
+- [ ] Wire the reference `tools/` handlers to a live Gateway; add an end-to-end named-supervisor scenario.
+- [ ] Re-run detection-gen with sufficient reviewer budget to capture a full `VERDICT:` line.
+
+## 📁 Repo layout
 
 ```
 sentinel-harness/
-├── sentinel_harness/        core library (core.py) + CLI
-├── harnesses/               declarative harness configs (Layer 1 supervisors)
-├── skills/                  Agent Skills (SKILL.md, AgentSkills.io format)
-├── tools/                   Lambda-style MCP tool templates (nvd/epss/attack/web_search/sigma-lint)
-├── scenarios/               runnable, live-validated scenario scripts
-├── evidence/                captured live-run results (proof, not claims)
-├── docs/                    ARCHITECTURE / BLUEPRINT / SETUP / HARNESSES
-├── tests/                   offline config-validation tests
-└── .github/workflows/       CI incl. a customer-name / secret scan gate
+├── sentinel_harness/     core library (core.py) + CLI          🟢 tested
+├── scenarios/            runnable, live-validated scenarios     🟢
+├── evidence/             captured live-run results (scrubbed)   🟢
+├── tools/                MCP tool templates (sigma-lint real)   🟡 reference
+├── skills/               Agent Skills (SKILL.md)                🟡 reference
+├── harnesses/            illustrative declarative configs       🟠 not loader-consumed yet
+├── docs/                 ARCHITECTURE · BLUEPRINT · SETUP · HARNESSES · FIDELITY-REPORT
+├── tests/                offline config-validation (42 tests)   🟢
+└── .github/workflows/    CI incl. a customer-name / secret gate
 ```
 
-## Safety & scope
+## 🔐 Safety & scope
 
-This is a **reference implementation and educational sample** for authorized, defensive security operations. It ships stubbed/mockable tools and uses only public threat examples. Bring your own least-privilege role, VPC, and data controls before any real use.
+A reference implementation and educational sample for **authorized, defensive** security operations. Ships stubbed/offline-safe tools and only public threat examples (ATT&CK, public CVEs). Bring your own least-privilege role, VPC, and data controls before any real use.
 
-## License
+## 🤝 Contributing
 
-[MIT-0](LICENSE). Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Ground rules: no proprietary data, no hardcoded secrets/account IDs, defensive scope only, English. CI enforces a name/secret scan.
+
+## 📄 License
+
+[MIT-0](LICENSE) © 2026 sentinel-harness contributors.

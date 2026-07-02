@@ -61,7 +61,16 @@ vault so the agent never sees raw credentials.
                  "bedrock:Converse","bedrock:ConverseStream"],
       "Resource": "*" },
     { "Sid": "AgentCore", "Effect": "Allow",
-      "Action": ["bedrock-agentcore:*"], "Resource": "*" },
+      "Action": [
+        "bedrock-agentcore:InvokeHarness",
+        "bedrock-agentcore:InvokeAgentRuntime",
+        "bedrock-agentcore:GetWorkloadAccessToken",
+        "bedrock-agentcore:GetWorkloadAccessTokenForJWT",
+        "bedrock-agentcore:GetResourceApiKey",
+        "bedrock-agentcore:GetResourceOauth2Token"
+      ],
+      "Resource": "*" },
+    { "__comment__": "Deliberately EXCLUDED: bedrock-agentcore:InvokeAgentRuntimeCommand — it runs shell on the microVM as root, bypassing the LLM and allowedTools. Grant it only if a scenario truly needs deterministic shell prep, and understand the risk." },
     { "Sid": "Logs", "Effect": "Allow",
       "Action": ["logs:CreateLogGroup","logs:CreateLogStream","logs:PutLogEvents",
                  "logs:DescribeLogGroups","logs:DescribeLogStreams"],
@@ -77,6 +86,17 @@ vault so the agent never sees raw credentials.
 }
 ```
 
+> ⚠️ **`allowedTools` cannot restrict `InvokeAgentRuntimeCommand`.** `allowedTools`
+> only scopes which tools the *LLM* may pick during `InvokeHarness`.
+> `InvokeAgentRuntimeCommand` is a separate data-plane API that runs a shell command
+> directly on the microVM (as root), bypassing the model and `allowedTools` entirely.
+> The **only** control is to *not grant the IAM action* — which is why the policy above
+> omits it. This is the single most important least-privilege decision for a SecOps repo.
+>
+> **Caller policy vs execution role:** the policy above is the harness **execution role**
+> (what the agent may touch). A **caller** additionally needs
+> `bedrock-agentcore:InvokeHarness` + `bedrock-agentcore:InvokeAgentRuntime` to invoke.
+>
 > **Production hardening:** replace each `"*"` with specific ARNs — Bedrock inference
 > profiles, your gateway ARN, your memory ARN, your log groups. Deny `sts:AssumeRole`
 > on the role if you don't need model-config role switching. Run harnesses in a VPC

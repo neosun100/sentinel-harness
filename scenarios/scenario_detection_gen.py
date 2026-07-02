@@ -24,10 +24,14 @@ def rec(step, data):
 GEN_SYS = ("You are a detection engineer. Given a threat behavior, write ONE concise Sigma "
            "detection rule (YAML): title, logsource, detection (selection + condition), "
            "level. Keep it tight. Output only the YAML rule.")
-REV_SYS = ("You are an adversarial detection reviewer. Attack the given Sigma rule: list "
-           "concrete false-positive sources, logic gaps, and evasion bypasses. Then return a "
-           "verdict line: 'VERDICT: approve' or 'VERDICT: revise' with a one-line reason. "
-           "Be skeptical — your job is to find what's wrong.")
+REV_SYS = ("You are an adversarial detection reviewer.\n"
+           "OUTPUT CONTRACT — follow exactly:\n"
+           "1. Your VERY FIRST line MUST be either 'VERDICT: approve' or 'VERDICT: revise' "
+           "(nothing before it). Decide the verdict first, then justify it.\n"
+           "2. After that line, briefly list the concrete false-positive sources, logic gaps, "
+           "and evasion bypasses that drove your verdict. Be skeptical and specific.\n"
+           "Do NOT preface with 'I'll analyze...' or any thinking — start with the VERDICT line "
+           "immediately. A reply whose first line is not 'VERDICT:' is a failed review.")
 
 PUBLISH_GATE = sh.tool_inline(
     "request_publish_approval",
@@ -41,18 +45,44 @@ PUBLISH_GATE = sh.tool_inline(
 THREAT = ("Detect an npm package running a postinstall script that reads private-key material "
           "(e.g. accessing ~/.ssh, wallet keystores, or environment secrets) during install.")
 
+def parse_verdict(text: str) -> bool:
+    """Robustly decide approval from a reviewer reply.
+
+    Case-insensitive: find the LAST line containing 'verdict:'; approved iff that
+    line says 'approve' and NOT 'revise'. Falls back to a whole-text scan (same
+    approve-and-not-revise rule) if no explicit verdict line was emitted."""
+    approved_line, scope = None, text
+    for line in text.splitlines():
+        if "verdict:" in line.lower():
+            approved_line = line
+    if approved_line is not None:
+        scope = approved_line.lower()
+    else:
+        scope = text.lower()
+    return "approve" in scope and "revise" not in scope
+
+# Reviewer needs headroom to finish the analysis AND emit the final VERDICT line.
+REVIEW_MAX_ITERATIONS = int(os.environ.get("SENTINEL_REVIEW_MAX_ITERATIONS", "8"))
+REVIEW_MAX_TOKENS = int(os.environ.get("SENTINEL_REVIEW_MAX_TOKENS", "2000"))
+
 def build():
     gen = sh.create_harness("sentinel_detect_gen", GEN_SYS,
                             model=sh.bedrock_model(sh.MODEL_SONNET), max_iterations=6)
+    # Larger budget so the reviewer doesn't return only a preamble and drop the verdict line.
     rev = sh.create_harness("sentinel_detect_reviewer", REV_SYS,
-                            model=sh.bedrock_model(sh.MODEL_SONNET), max_iterations=6)
-    # publisher harness holds the HITL publish gate
+                            model=sh.bedrock_model(sh.MODEL_SONNET),
+                            max_iterations=REVIEW_MAX_ITERATIONS, max_tokens=REVIEW_MAX_TOKENS)
+    # publisher harness holds the HITL publish gate. allowedTools scopes the LLM's tool choice
+    # (built-ins included) to ONLY request_publish_approval, so the model can't fire a stray
+    # built-in 'shell' tool. Note: allowedTools does NOT gate InvokeAgentRuntimeCommand — it
+    # constrains what the model may call inside the loop, not the harness invocation itself.
     pub = sh.create_harness(
         "sentinel_detect_publisher",
         "You are a detection-publishing coordinator. Given a rule and a reviewer verdict, if the "
         "verdict approves, call request_publish_approval to get analyst sign-off before publishing. "
-        "Never publish without the human gate.",
-        model=sh.bedrock_model(sh.MODEL_SONNET), tools=[PUBLISH_GATE], max_iterations=6)
+        "Never publish without the human gate. Use only the request_publish_approval tool.",
+        model=sh.bedrock_model(sh.MODEL_SONNET), tools=[PUBLISH_GATE],
+        allowed_tools=["request_publish_approval"], max_iterations=6)
     for h in (gen, rev, pub): sh.wait_ready(h["harnessId"])
     rec("built", {"gen": gen["harnessId"], "reviewer": rev["harnessId"], "publisher": pub["harnessId"]})
     return gen["arn"], rev["arn"], pub["arn"]
@@ -63,24 +93,43 @@ def run(gen_arn, rev_arn, pub_arn):
     rule = g["text"].strip()
     rec("generated_rule", {"rule_head": rule[:300]})
 
-    # 2) adversarial reviewer attacks it (separate harness = independent judgment)
-    rv = sh.invoke(rev_arn, sh.new_session("rev"), f"Review this Sigma rule:\n{rule}")
+    # 2) adversarial reviewer attacks it (separate harness = independent judgment).
+    #    Pass maxTokens on the invoke too so a long attack list still leaves room for the
+    #    trailing VERDICT line (invoke overrides win over create-time defaults).
+    rv = sh.invoke(rev_arn, sh.new_session("rev"), f"Review this Sigma rule:\n{rule}",
+                   maxTokens=REVIEW_MAX_TOKENS)
     verdict = rv["text"].strip()
-    approved = "approve" in verdict.lower().split("verdict:")[-1][:40] if "verdict:" in verdict.lower() else "approve" in verdict.lower()
-    rec("adversarial_review", {"verdict_tail": verdict[-400:], "approved_signal": approved})
+    approved = parse_verdict(verdict)
+    # verdict now leads the reply, so capture the HEAD (where the VERDICT line lives)
+    rec("adversarial_review", {"verdict_head": verdict[:400], "approved_signal": approved})
 
-    # 3) publish gate — must hit the human-in-the-loop inline_function
+    # 3) publish gate — the analyst sign-off is REQUIRED no matter the verdict: an
+    #    approve still needs a human to authorize going live; a revise needs a human to
+    #    see the reviewer's objections and decide. Either way nothing reaches production
+    #    without request_publish_approval. allowed_tools on the INVOKE narrows the LLM to
+    #    ONLY the gate so the built-in 'shell' can't fire (allowedTools scopes create AND
+    #    invoke; it does NOT gate InvokeAgentRuntimeCommand — that needs the IAM action withheld).
     p = sh.invoke(pub_arn, sh.new_session("pub"),
-                  f"Rule:\n{rule}\n\nReviewer verdict:\n{verdict}\n\nProceed through the publish approval flow.")
+                  f"Rule:\n{rule}\n\nReviewer verdict:\n{verdict}\n\nRegardless of the verdict, you MUST "
+                  f"call request_publish_approval to get analyst sign-off before anything goes live. "
+                  f"Pass the reviewer's verdict through so the analyst sees it.",
+                  allowedTools=["request_publish_approval"])
     rec("publish_flow", {"stop_reason": p["stop_reason"], "tools_used": p["tools_used"],
         "reply_head": p["text"][:240]})
 
+    emitted_verdict = "verdict:" in verdict.lower()
+    hit_gate = "request_publish_approval" in p["tools_used"]
     RESULT["verdict"] = {
         "generator_and_reviewer_are_separate_harnesses": True,
-        "adversarial_review_ran": bool(verdict),
-        "hit_publish_human_gate": "request_publish_approval" in p["tools_used"],
-        "note": "generation != evaluation: an independent reviewer harness attacks the generated "
-                "rule, and a human gate signs off before publish. Kills self-approval bias."}
+        "reviewer_emitted_parseable_verdict": emitted_verdict,
+        "reviewer_verdict": "approve" if approved else "revise",
+        "publisher_used_only_gate": p["tools_used"] == ["request_publish_approval"],
+        "hit_publish_human_gate": hit_gate,
+        "closed": emitted_verdict and hit_gate,
+        "note": "generation != evaluation: an independent reviewer harness emits a parseable "
+                "VERDICT (verdict-first so it survives truncation), then a human gate "
+                "(allowedTools-scoped to only the gate — no stray shell) signs off before "
+                "anything goes live. Kills self-approval bias."}
     return RESULT
 
 if __name__ == "__main__":

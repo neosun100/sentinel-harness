@@ -11,17 +11,27 @@ Every harness lives in its own directory:
 ```
 harnesses/<name>/
 ├── system_prompt.md   # the agent's operating instructions
-└── harness.yaml       # illustrative declarative config (see note below)
+└── harness.yaml       # declarative config, consumed by the loader (see below)
 ```
 
-> **Status — illustrative reference, not yet loader-consumed.** These `harness.yaml`
-> files document the *intended* declarative shape of the three Layer-1 supervisors.
-> They are **not** parsed by the shipped CLI today (a YAML→`create_harness` loader is
-> on the roadmap). For working, end-to-end examples that actually call
-> `create_harness()`, see `scenarios/` — those are the live-validated path. The
-> supervisors here also reference Gateway tools (`search_registry`, `siem_query`,
-> `enrich_ioc`, …) whose handlers are reference stubs under `tools/` and are not yet
-> wired to a live Gateway.
+> **Status — live, loader-consumed.** These `harness.yaml` files are parsed by
+> `sentinel_harness.loader.load_harness_config` and created via the CLI:
+>
+> ```bash
+> sentinel create harnesses/alert-triage/harness.yaml
+> ```
+>
+> The loader reads `systemPrompt` (a path relative to the harness dir) and wraps it
+> as the `[{text: ...}]` shape, expands `${ENV_VAR}` references from the environment
+> (12-factor; `${arn:...}` token-vault refs are left for AgentCore Identity to
+> resolve server-side), injects the inline-function HITL gates named in
+> `allowedTools` (their input schema lives in code), and passes
+> `model` / `tools` / `memory` / `allowedTools` / `maxIterations` / `timeoutSeconds`
+> through to `create_harness()`. A missing `${ENV_VAR}` fails loudly, naming the
+> variable. For runnable end-to-end flows (invoke + HITL resume), see `scenarios/`.
+> The Gateway tools these supervisors reference (`search_registry`, `siem_query`,
+> `enrich_ioc`, …) have reference-stub handlers under `tools/`; point
+> `SENTINEL_GATEWAY_ARN` at a Gateway that hosts them to run against live data.
 
 All content is generic security-operations material. There are no organization-,
 customer-, or company-specific references, no hardcoded AWS account IDs, and no role
@@ -57,10 +67,11 @@ an ambiguous alert from Haiku to Sonnet for a single call).
   detection rule, containing a host) go through an `inline_function` gate that pauses
   the loop (`stop_reason=tool_use`) and returns the call to your code. Gates are
   declared with `core.tool_inline(...)` (their input schema lives in code) and passed
-  to `create_harness(tools=[...])` in the scenarios. **Note:** the scenarios currently
-  demonstrate the *pause* half of the contract; sending the analyst decision back
-  (the two-message `toolUse`→`toolResult` resume) is a roadmap item — see the
-  Roadmap in the README.
+  to `create_harness(tools=[...])`. The **full contract is closed**: `core.invoke()`
+  reconstructs the paused call as `result["tool_use"]` (toolUseId + accumulated input),
+  and `core.invoke_with_tool_result(...)` resumes the same session with the two-message
+  `toolUse`→`toolResult` turn. See `scenarios/scenario_hitl_resume.py` for a live
+  pause→approve→resume round trip (evidence in `evidence/hitl_resume_result.json`).
 - **Managed memory with SEMANTIC + SUMMARIZATION.** Every harness declares
   `managedMemoryConfiguration` with both strategies. `actorId` namespaces isolate
   memory per analyst / per tenant, and verdicts persist as a team feedback loop.

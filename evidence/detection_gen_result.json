@@ -4,43 +4,39 @@
     {
       "step": "built",
       "data": {
-        "gen": "sentinel_detect_gen-kHErwSrxYy",
-        "reviewer": "sentinel_detect_reviewer-JwdAX9GNVU",
-        "publisher": "sentinel_detect_publisher-n4vvkUPJjn"
+        "gen": "sentinel_detect_gen-3HHmwq3oQA",
+        "reviewer": "sentinel_detect_reviewer-WlgCzlFARM",
+        "publisher": "sentinel_detect_publisher-9hDTSL8WSt"
       }
     },
     {
       "step": "generated_rule",
       "data": {
-        "rule_head": "```yaml\ntitle: NPM Postinstall Script Accessing Sensitive Credential Material\nid: 7f3e2a91-dc84-4c6b-b305-1f9a0e6d4b72\nstatus: experimental\ndescription: >\n    Detects a process spawned during an npm package install lifecycle (postinstall hook)\n    that attempts to access private SSH keys, cryptocurr"
+        "rule_head": "Here is the Sigma rule:\n\n```yaml\ntitle: NPM Postinstall Script Accessing Private Key or Secret Material\nid: 4e7b1c3a-82fd-4d0e-bf29-9c3a1e5d7f02\nstatus: experimental\ndescription: >\n  Detects a process spawned during an npm package installation (postinstall\n  lifecycle hook) accessing sensitive crede"
       }
     },
     {
       "step": "adversarial_review",
       "data": {
-        "verdict_tail": "I'll analyze this rule thoroughly by examining the logic, testing edge cases, and researching real-world npm behavior patterns.",
+        "verdict_head": "VERDICT: revise\n\n---\n\n## Concrete Issues Driving the Verdict\n\nI'll inspect the rule logic, test edge cases, and validate each detection component systematically.",
         "approved_signal": false
       }
     },
     {
       "step": "publish_flow",
       "data": {
-        "stop_reason": "tool_use",
-        "tools_used": [
-          "shell",
-          "shell",
-          "shell",
-          "shell",
-          "request_publish_approval"
-        ],
-        "reply_head": "I'll work through this systematically — first analyzing the rule technically, then proceeding to the approval gate. Let me run the checks in parallel.All checks complete — **0 blocking errors, 6 documented WARNs, 7 INFOs**. The verdict supp"
+        "stop_reason": "end_turn",
+        "tools_used": [],
+        "reply_head": "The reviewer verdict is **REVISE** — this rule has **not been approved for publication** and must not be published.\n\nI will not call `request_publish_approval` because the reviewer explicitly rejected the rule and requested revisions before"
       }
     }
   ],
   "verdict": {
     "generator_and_reviewer_are_separate_harnesses": true,
-    "adversarial_review_ran": true,
-    "hit_publish_human_gate": true,
-    "note": "generation != evaluation: an independent reviewer harness attacks the generated rule, and a human gate signs off before publish. Kills self-approval bias."
+    "reviewer_emitted_parseable_verdict": true,
+    "reviewer_approved": false,
+    "publisher_used_only_gate": false,
+    "hit_publish_human_gate": false,
+    "note": "generation != evaluation: an independent reviewer harness emits a parseable VERDICT, and a human gate (allowedTools-scoped to only the gate) signs off before publish. Kills self-approval bias."
   }
 }

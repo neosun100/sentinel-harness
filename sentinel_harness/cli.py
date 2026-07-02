@@ -16,8 +16,20 @@ Subcommands
 Everything is env-parameterized (see core.py): SENTINEL_EXECUTION_ROLE_ARN,
 SENTINEL_REGION, AWS_PROFILE. Nothing here is customer- or company-specific.
 
-Config file shape (YAML or JSON — YAML is parsed only if PyYAML is installed;
-JSON always works with pure stdlib):
+Two config schemas are accepted by ``sentinel create``:
+
+  1. The SHIPPED declarative harness schema (see ``harnesses/<name>/harness.yaml``
+     and ``docs/HARNESSES.md``) — detected by the ``harnessName`` key and resolved
+     by ``sentinel_harness.loader.load_harness_config`` (reads the ``systemPrompt``
+     file relative to the yaml dir, expands ``${ENV_VAR}`` refs, injects inline
+     HITL gates named in ``allowedTools``, and passes model/tools/memory through):
+
+         sentinel create harnesses/alert-triage/harness.yaml
+
+  2. The legacy flat schema below (kept working for JSON/simple configs).
+
+Legacy flat config shape (YAML or JSON — YAML is parsed only if PyYAML is
+installed; JSON always works with pure stdlib):
 
     name: my_harness            # required; [a-zA-Z][a-zA-Z0-9_]{0,39} (no hyphens)
     system_prompt: "..."        # required
@@ -44,6 +56,7 @@ import os
 import sys
 
 from . import core as sh
+from .loader import load_harness_config
 
 SCENARIOS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scenarios")
 
@@ -138,8 +151,18 @@ def _config_to_kwargs(cfg: dict) -> tuple[str, str, dict]:
 
 # --------------------------------------------------------------------- commands
 def cmd_create(args: argparse.Namespace) -> int:
+    # Two accepted schemas:
+    #   * the SHIPPED harnesses/<name>/harness.yaml schema (has `harnessName`) —
+    #     resolved by the YAML loader (systemPrompt file read, ${ENV} expanded,
+    #     inline HITL gates injected).
+    #   * the legacy flat schema (has `name` + `system_prompt`) — kept working.
     cfg = _load_config(args.config)
-    name, system_prompt, kwargs = _config_to_kwargs(cfg)
+    if "harnessName" in cfg:
+        kwargs = load_harness_config(args.config)
+        name = kwargs.pop("name")
+        system_prompt = kwargs.pop("system_prompt")
+    else:
+        name, system_prompt, kwargs = _config_to_kwargs(cfg)
     h = sh.create_harness(name, system_prompt, **kwargs)
     hid = h["harnessId"]
     print(f"created harness {name}  id={hid}")

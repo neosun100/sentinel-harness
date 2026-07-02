@@ -1,0 +1,48 @@
+# sentinel-harness · tool/skill registry (declarative allowlist)
+# ================================================================
+# This file is the SecOps-owned side of the Layer-3 dual-gate. A tool listed
+# here is only *live* if it is ALSO implemented in the code TOOL_FACTORY_MAP
+# (see sentinel_harness/registry.py::ToolRegistry). Editing this file lets a
+# security team approve/deprecate a capability WITHOUT shipping code; the
+# governance_check() surfaces any entry that lacks a code implementation.
+#
+# status: approved  -> eligible to be live (if a code factory also exists)
+#         pending   -> proposed / under review; never resolvable
+#         deprecated-> kept for audit history; never resolvable
+#
+# owner is a team alias/label only — no personal names, no account IDs.
+tools:
+  - name: sigma_yara_lint
+    owner: detection-engineering
+    status: approved
+    description: >-
+      Deterministic, LLM-free structural linter for Sigma and YARA detection
+      rules. Mandatory pre-publish gate; makes no network calls.
+
+  - name: nvd_lookup
+    owner: vuln-management
+    status: approved
+    description: >-
+      CVE metadata lookup (description, CVSS, references) from the NVD API.
+      Offline-stubbed by default; live egress is opt-in via NVD_LIVE.
+
+  - name: epss_kev
+    owner: vuln-management
+    status: approved
+    description: >-
+      Enriches a CVE with EPSS exploit-probability and CISA KEV known-exploited
+      status so triage prioritizes real-world risk, not CVSS alone.
+
+  - name: attack_lookup
+    owner: threat-intel
+    status: approved
+    description: >-
+      MITRE ATT&CK technique lookup (name, tactics, platforms, references)
+      from an embedded offline slice; live STIX pull is opt-in.
+
+  - name: web_search
+    owner: threat-intel
+    status: pending
+    description: >-
+      Egress-controlled, TEXT-ONLY open-web search (title/url/snippet). Pending
+      SecOps approval of the egress allowlist for its single search chokepoint.

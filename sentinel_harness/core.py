@@ -108,25 +108,36 @@ def wait_ready(harness_id: str, timeout: int = 360) -> dict:
     raise TimeoutError(f"{harness_id} not READY within {timeout}s")
 
 
-def invoke(harness_arn: str, session_id: str, text: str, *, actor_id=None, **overrides) -> dict:
-    """Invoke a harness (data plane, streaming). Returns a structured result:
-    {text, events, stop_reason, tools_used, metadata}. ``actor_id`` scopes memory
-    per-analyst/tenant. ``overrides`` may set model/systemPrompt/tools/maxIterations/etc."""
-    kw = dict(harnessArn=harness_arn, runtimeSessionId=session_id,
-              messages=[{"role": "user", "content": [{"text": text}]}])
-    if actor_id: kw["actorId"] = actor_id
-    kw.update(overrides)
-    r = _data.invoke_harness(**kw)
+def _consume_stream(stream) -> dict:
+    """Parse an InvokeHarness event stream into a structured result.
+
+    Also reconstructs any inline_function call the harness paused on: its
+    ``toolUseId``/``name`` (from contentBlockStart) and its full ``input`` JSON,
+    accumulated from the ``toolUse.input`` string deltas across contentBlockDelta
+    events. The reconstructed call is returned as ``tool_use`` so a caller can feed
+    a result back via :func:`invoke_with_tool_result` (the HITL resume contract)."""
     out, events, stop, meta, tools_used = "", [], None, None, []
-    for ev in r["stream"]:
+    cur = None          # tool call currently being assembled
+    tool_use = None     # the completed pending call (if the loop paused on tool_use)
+    for ev in stream:
         for et, payload in ev.items():
             events.append(et)
-            if et == "contentBlockDelta":
-                d = (payload.get("delta") or {}).get("text")
-                if d: out += d
-            elif et == "contentBlockStart":
+            if et == "contentBlockStart":
                 tu = (payload.get("start") or {}).get("toolUse") or {}
-                if tu.get("name"): tools_used.append(tu["name"])
+                if tu.get("name"):
+                    tools_used.append(tu["name"])
+                    cur = {"toolUseId": tu.get("toolUseId"), "name": tu["name"], "_raw": ""}
+            elif et == "contentBlockDelta":
+                d = (payload.get("delta") or {})
+                if d.get("text"): out += d["text"]
+                tu = d.get("toolUse") or {}
+                if cur is not None and tu.get("input") is not None:
+                    cur["_raw"] += tu["input"]   # input arrives as JSON string deltas
+            elif et == "contentBlockStop":
+                if cur is not None:
+                    try: cur["input"] = json.loads(cur.pop("_raw") or "{}")
+                    except (ValueError, TypeError): cur["input"] = {"_unparsed": cur.pop("_raw", "")}
+                    tool_use = cur; cur = None
             elif et == "messageStop":
                 stop = payload.get("stopReason")
             elif et == "metadata":
@@ -134,7 +145,52 @@ def invoke(harness_arn: str, session_id: str, text: str, *, actor_id=None, **ove
             elif et in ("runtimeClientError", "validationException", "internalServerException"):
                 out += f"[STREAM-ERROR {et}: {json.dumps(payload, default=str)[:200]}]"
     return {"text": out, "events": events, "stop_reason": stop,
-            "tools_used": tools_used, "metadata": meta}
+            "tools_used": tools_used, "tool_use": tool_use if stop == "tool_use" else None,
+            "metadata": meta}
+
+
+def invoke(harness_arn: str, session_id: str, text: str, *, actor_id=None, **overrides) -> dict:
+    """Invoke a harness (data plane, streaming). Returns a structured result:
+    {text, events, stop_reason, tools_used, tool_use, metadata}. ``actor_id`` scopes
+    memory per-analyst/tenant. ``overrides`` may set model/systemPrompt/tools/maxIterations/etc.
+
+    If ``stop_reason == "tool_use"`` the harness paused on an ``inline_function`` (a
+    human-in-the-loop gate); ``result["tool_use"]`` holds the reconstructed call
+    (``toolUseId``/``name``/``input``). Feed a decision back with
+    :func:`invoke_with_tool_result` to resume the loop."""
+    kw = dict(harnessArn=harness_arn, runtimeSessionId=session_id,
+              messages=[{"role": "user", "content": [{"text": text}]}])
+    if actor_id: kw["actorId"] = actor_id
+    kw.update(overrides)
+    return _consume_stream(_data.invoke_harness(**kw)["stream"])
+
+
+def invoke_with_tool_result(harness_arn: str, session_id: str, tool_use: dict,
+                            result, *, status="success", actor_id=None, **overrides) -> dict:
+    """Resume a harness that paused on an inline_function (HITL gate), closing the loop.
+
+    Implements the two-message resume contract: on the SAME ``session_id`` we re-invoke
+    with the assistant ``toolUse`` turn FOLLOWED BY a user ``toolResult`` whose
+    ``toolUseId`` matches — both must be sent together or the session is left corrupted.
+
+    ``tool_use`` is the dict from a prior ``invoke(...)["tool_use"]``. ``result`` is the
+    analyst's decision payload; a dict is JSON-serialized into a text content block
+    (the toolResult content block is sent as ``text``). ``status`` is
+    ``"success"`` or ``"error"``."""
+    tuid = tool_use["toolUseId"]; name = tool_use["name"]; tinput = tool_use.get("input", {})
+    result_text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+    content = [{"text": result_text}]
+    kw = dict(
+        harnessArn=harness_arn, runtimeSessionId=session_id,
+        messages=[
+            {"role": "assistant",
+             "content": [{"toolUse": {"toolUseId": tuid, "name": name, "input": tinput}}]},
+            {"role": "user",
+             "content": [{"toolResult": {"toolUseId": tuid, "content": content, "status": status}}]},
+        ])
+    if actor_id: kw["actorId"] = actor_id
+    kw.update(overrides)
+    return _consume_stream(_data.invoke_harness(**kw)["stream"])
 
 
 # ---------------------------------------------------------------- tool builders

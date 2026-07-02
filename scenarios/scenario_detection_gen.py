@@ -24,14 +24,11 @@ def rec(step, data):
 GEN_SYS = ("You are a detection engineer. Given a threat behavior, write ONE concise Sigma "
            "detection rule (YAML): title, logsource, detection (selection + condition), "
            "level. Keep it tight. Output only the YAML rule.")
-REV_SYS = ("You are an adversarial detection reviewer.\n"
-           "OUTPUT CONTRACT — follow exactly:\n"
-           "1. Your VERY FIRST line MUST be either 'VERDICT: approve' or 'VERDICT: revise' "
-           "(nothing before it). Decide the verdict first, then justify it.\n"
-           "2. After that line, briefly list the concrete false-positive sources, logic gaps, "
-           "and evasion bypasses that drove your verdict. Be skeptical and specific.\n"
-           "Do NOT preface with 'I'll analyze...' or any thinking — start with the VERDICT line "
-           "immediately. A reply whose first line is not 'VERDICT:' is a failed review.")
+REV_SYS = ("You are an adversarial detection reviewer. Attack the given Sigma rule: find "
+           "false-positive sources, logic gaps, and evasion bypasses. Be skeptical and specific.\n"
+           "You MUST record your decision by calling the submit_review_verdict tool exactly once "
+           "with verdict='approve' or verdict='revise' and a list of the concrete issues you found. "
+           "Do not answer in prose alone — the verdict is only valid when submitted via the tool.")
 
 PUBLISH_GATE = sh.tool_inline(
     "request_publish_approval",
@@ -44,6 +41,20 @@ PUBLISH_GATE = sh.tool_inline(
 
 THREAT = ("Detect an npm package running a postinstall script that reads private-key material "
           "(e.g. accessing ~/.ssh, wallet keystores, or environment secrets) during install.")
+
+# Structured verdict: instead of relying on free-text discipline (which a model may drop
+# under a reasoning-heavy turn), the reviewer submits its verdict via a tool call. A tool
+# call is deterministic and always parseable — the harness pauses (stop_reason=tool_use)
+# and we read the structured input. This is the robust way to capture a machine verdict.
+VERDICT_TOOL = sh.tool_inline(
+    "submit_review_verdict",
+    "Submit your final adversarial-review verdict for the Sigma rule. Call this exactly once.",
+    {"type": "object",
+     "properties": {
+         "verdict": {"type": "string", "enum": ["approve", "revise"]},
+         "issues": {"type": "array", "items": {"type": "string"},
+                    "description": "concrete FP sources / logic gaps / evasion bypasses"}},
+     "required": ["verdict"]})
 
 def parse_verdict(text: str) -> bool:
     """Robustly decide approval from a reviewer reply.
@@ -68,9 +79,11 @@ REVIEW_MAX_TOKENS = int(os.environ.get("SENTINEL_REVIEW_MAX_TOKENS", "2000"))
 def build():
     gen = sh.create_harness("sentinel_detect_gen", GEN_SYS,
                             model=sh.bedrock_model(sh.MODEL_SONNET), max_iterations=6)
-    # Larger budget so the reviewer doesn't return only a preamble and drop the verdict line.
+    # Reviewer submits its verdict via a tool call (deterministic + always parseable),
+    # not free text; allowedTools scopes it to only that tool.
     rev = sh.create_harness("sentinel_detect_reviewer", REV_SYS,
-                            model=sh.bedrock_model(sh.MODEL_SONNET),
+                            model=sh.bedrock_model(sh.MODEL_SONNET), tools=[VERDICT_TOOL],
+                            allowed_tools=["submit_review_verdict"],
                             max_iterations=REVIEW_MAX_ITERATIONS, max_tokens=REVIEW_MAX_TOKENS)
     # publisher harness holds the HITL publish gate. allowedTools scopes the LLM's tool choice
     # (built-ins included) to ONLY request_publish_approval, so the model can't fire a stray
@@ -93,15 +106,25 @@ def run(gen_arn, rev_arn, pub_arn):
     rule = g["text"].strip()
     rec("generated_rule", {"rule_head": rule[:300]})
 
-    # 2) adversarial reviewer attacks it (separate harness = independent judgment).
-    #    Pass maxTokens on the invoke too so a long attack list still leaves room for the
-    #    trailing VERDICT line (invoke overrides win over create-time defaults).
-    rv = sh.invoke(rev_arn, sh.new_session("rev"), f"Review this Sigma rule:\n{rule}",
+    # 2) adversarial reviewer attacks it (separate harness = independent judgment) and
+    #    submits its verdict via the submit_review_verdict tool. Reading the STRUCTURED
+    #    tool input is deterministic — no dependence on free-text discipline.
+    rv = sh.invoke(rev_arn, sh.new_session("rev"),
+                   f"Review this Sigma rule and record your decision.\n{rule}\n\n"
+                   "Do NOT write your analysis as prose. Respond ONLY by calling the "
+                   "submit_review_verdict tool with verdict=approve|revise and the issues list. "
+                   "That tool call is your entire response.",
                    maxTokens=REVIEW_MAX_TOKENS)
-    verdict = rv["text"].strip()
-    approved = parse_verdict(verdict)
-    # verdict now leads the reply, so capture the HEAD (where the VERDICT line lives)
-    rec("adversarial_review", {"verdict_head": verdict[:400], "approved_signal": approved})
+    tu = rv.get("tool_use") or {}
+    vin = tu.get("input") or {}
+    structured = tu.get("name") == "submit_review_verdict" and "verdict" in vin
+    if structured:
+        approved = vin["verdict"].lower() == "approve"
+        verdict = vin["verdict"]; issues = vin.get("issues", [])
+    else:   # fallback: parse any prose the model emitted
+        verdict = rv["text"].strip(); approved = parse_verdict(verdict); issues = []
+    rec("adversarial_review", {"structured_verdict": structured, "verdict": verdict,
+        "issues": issues[:5], "approved_signal": approved})
 
     # 3) publish gate — the analyst sign-off is REQUIRED no matter the verdict: an
     #    approve still needs a human to authorize going live; a revise needs a human to
@@ -117,7 +140,7 @@ def run(gen_arn, rev_arn, pub_arn):
     rec("publish_flow", {"stop_reason": p["stop_reason"], "tools_used": p["tools_used"],
         "reply_head": p["text"][:240]})
 
-    emitted_verdict = "verdict:" in verdict.lower()
+    emitted_verdict = structured or ("verdict:" in verdict.lower())
     hit_gate = "request_publish_approval" in p["tools_used"]
     used_no_shell = "shell" not in p["tools_used"]   # allowedTools kept the built-in shell off
     # Safety property: a rule reaches "published" ONLY through the human gate. If the
@@ -129,16 +152,16 @@ def run(gen_arn, rev_arn, pub_arn):
         publish_controlled = not hit_gate        # revise → correctly withheld, nothing published
     RESULT["verdict"] = {
         "generator_and_reviewer_are_separate_harnesses": True,
-        "reviewer_emitted_parseable_verdict": emitted_verdict,
+        "reviewer_submitted_structured_verdict": structured,
         "reviewer_verdict": "approve" if approved else "revise",
         "no_stray_shell_tool": used_no_shell,
         "publish_correctly_controlled": publish_controlled,
         "closed": emitted_verdict and publish_controlled and used_no_shell,
-        "note": "generation != evaluation: an independent reviewer harness emits a parseable "
-                "VERDICT (verdict-first so it survives truncation); allowedTools kept the built-in "
-                "shell off; and nothing reaches production except through the human gate — an "
-                "approve routes through request_publish_approval, a revise withholds publish. "
-                "Kills self-approval bias."}
+        "note": "generation != evaluation: an independent reviewer harness submits its verdict "
+                "via a structured tool call (deterministic, always parseable — no reliance on "
+                "free-text discipline); allowedTools kept the built-in shell off; and nothing "
+                "reaches production except through the human gate — an approve routes through "
+                "request_publish_approval, a revise withholds publish. Kills self-approval bias."}
     return RESULT
 
 if __name__ == "__main__":

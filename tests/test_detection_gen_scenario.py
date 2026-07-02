@@ -5,7 +5,8 @@ These validate the two fixes without any AWS calls:
 
   * the adversarial-reviewer verdict parser is robust (case-insensitive, uses the
     LAST 'verdict:' line, approve wins only if 'revise' is absent);
-  * the reviewer system prompt hard-requires a trailing VERDICT line;
+  * the reviewer submits a STRUCTURED verdict via the submit_review_verdict tool
+    (deterministic), reconstructed from the event stream by core._consume_stream;
   * the reviewer harness is built with a bigger budget (maxIterations>=8 + maxTokens);
   * the publisher harness is scoped with allowedTools to ONLY the inline gate so a
     stray built-in 'shell' tool can't fire.
@@ -68,17 +69,13 @@ def test_parse_verdict_ignores_leading_whitespace_lines():
 
 
 # --------------------------------------------------------------------------- #
-# Reviewer system prompt hard-requires a trailing VERDICT line                #
+# Reviewer system prompt mandates the structured verdict tool                 #
 # --------------------------------------------------------------------------- #
-def test_rev_sys_requires_verdict_first_line():
+def test_rev_sys_mandates_verdict_tool():
     s = dg.REV_SYS.lower()
-    assert "verdict: approve" in s and "verdict: revise" in s
-    # Verdict-first contract: the reply must LEAD with the VERDICT line so it
-    # survives truncation (the model can't run out of budget before emitting it).
-    assert "first line" in s
-    # The two exact strings the parser looks for must be spelled out for the model.
-    assert "VERDICT: approve" in dg.REV_SYS
-    assert "VERDICT: revise" in dg.REV_SYS
+    # The reviewer must be told to record its decision via the tool, not prose.
+    assert "submit_review_verdict" in s
+    assert "approve" in s and "revise" in s
 
 
 # --------------------------------------------------------------------------- #
@@ -138,3 +135,39 @@ def test_all_scenario_harness_names_valid(captured_harnesses):
     name_re = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{0,39}$")
     for name in captured_harnesses:
         assert name_re.match(name), f"{name!r} violates the harness naming rule"
+
+
+# --------------------------------------------------------------------------- #
+# Reviewer submits a STRUCTURED verdict via a tool (deterministic)            #
+# --------------------------------------------------------------------------- #
+def test_verdict_tool_shape():
+    t = dg.VERDICT_TOOL
+    assert t["type"] == "inline_function"
+    assert t["name"] == "submit_review_verdict"
+    schema = t["config"]["inlineFunction"]["inputSchema"]
+    assert schema["properties"]["verdict"]["enum"] == ["approve", "revise"]
+
+
+def test_reviewer_scoped_to_verdict_tool(captured_harnesses):
+    rev = captured_harnesses["sentinel_detect_reviewer"]
+    assert rev["allowedTools"] == ["submit_review_verdict"]
+    assert [t["name"] for t in rev["tools"]] == ["submit_review_verdict"]
+
+
+def test_structured_verdict_reconstructed_from_stream():
+    """core._consume_stream must deterministically reassemble a submit_review_verdict
+    tool call (verdict + issues) from streamed toolUse.input deltas — this is what makes
+    the reviewer verdict parseable regardless of the model's free-text behavior."""
+    from sentinel_harness import core
+    stream = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "tu-9", "name": "submit_review_verdict"}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"verdict":"revise",'}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '"issues":["selection too broad"]}'}}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use"}},
+    ]
+    r = core._consume_stream(iter(stream))
+    assert r["stop_reason"] == "tool_use"
+    assert r["tool_use"]["name"] == "submit_review_verdict"
+    assert r["tool_use"]["input"] == {"verdict": "revise", "issues": ["selection too broad"]}

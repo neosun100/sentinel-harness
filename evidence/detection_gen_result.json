@@ -1,0 +1,46 @@
+{
+  "scenario": "detection_gen_adversarial_review",
+  "steps": [
+    {
+      "step": "built",
+      "data": {
+        "gen": "sentinel_detect_gen-kHErwSrxYy",
+        "reviewer": "sentinel_detect_reviewer-JwdAX9GNVU",
+        "publisher": "sentinel_detect_publisher-n4vvkUPJjn"
+      }
+    },
+    {
+      "step": "generated_rule",
+      "data": {
+        "rule_head": "```yaml\ntitle: NPM Postinstall Script Accessing Sensitive Credential Material\nid: 7f3e2a91-dc84-4c6b-b305-1f9a0e6d4b72\nstatus: experimental\ndescription: >\n    Detects a process spawned during an npm package install lifecycle (postinstall hook)\n    that attempts to access private SSH keys, cryptocurr"
+      }
+    },
+    {
+      "step": "adversarial_review",
+      "data": {
+        "verdict_tail": "I'll analyze this rule thoroughly by examining the logic, testing edge cases, and researching real-world npm behavior patterns.",
+        "approved_signal": false
+      }
+    },
+    {
+      "step": "publish_flow",
+      "data": {
+        "stop_reason": "tool_use",
+        "tools_used": [
+          "shell",
+          "shell",
+          "shell",
+          "shell",
+          "request_publish_approval"
+        ],
+        "reply_head": "I'll work through this systematically — first analyzing the rule technically, then proceeding to the approval gate. Let me run the checks in parallel.All checks complete — **0 blocking errors, 6 documented WARNs, 7 INFOs**. The verdict supp"
+      }
+    }
+  ],
+  "verdict": {
+    "generator_and_reviewer_are_separate_harnesses": true,
+    "adversarial_review_ran": true,
+    "hit_publish_human_gate": true,
+    "note": "generation != evaluation: an independent reviewer harness attacks the generated rule, and a human gate signs off before publish. Kills self-approval bias."
+  }
+}

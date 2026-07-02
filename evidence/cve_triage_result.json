@@ -1,0 +1,50 @@
+{
+  "scenario": "cve_triage",
+  "steps": [
+    {
+      "step": "create",
+      "ok": true,
+      "data": {
+        "harnessId": "sentinel_cve_triage-OoxI0sT5HG",
+        "memory": {
+          "managedMemoryConfiguration": {
+            "strategies": [
+              "SEMANTIC",
+              "SUMMARIZATION"
+            ],
+            "eventExpiryDuration": 90
+          }
+        }
+      }
+    },
+    {
+      "step": "ready",
+      "ok": true,
+      "data": {
+        "id": "sentinel_cve_triage-OoxI0sT5HG"
+      }
+    },
+    {
+      "step": "triage",
+      "ok": true,
+      "data": {
+        "stop_reason": "tool_use",
+        "tools_used": [
+          "code_interpreter",
+          "request_human_review"
+        ],
+        "reply_head": "Now I have the computed numbers. I'll immediately escalate to the human-review gate before issuing any recommendation.",
+        "usage": {
+          "inputTokens": 5352,
+          "outputTokens": 610,
+          "totalTokens": 5962
+        }
+      }
+    }
+  ],
+  "verdict": {
+    "hit_human_review_gate": true,
+    "did_deterministic_calc": true,
+    "note": "CVE triage -> deterministic compute -> mandatory human-review gate, all via harness config. Zero orchestration code."
+  }
+}

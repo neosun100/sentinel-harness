@@ -1,14 +1,28 @@
 # tests
 
-Offline, hermetic tests for `sentinel-harness`. **They make ZERO AWS calls** and
-need no credentials, no network, and no live account. They validate the *shape* of
-what the `sentinel_harness.core` builder functions emit — the same invariants the
-Amazon Bedrock AgentCore control plane enforces server-side, checked locally so a
-bad harness config fails in CI instead of silently at deploy time.
+Offline, hermetic tests for `sentinel-harness` (**213 tests**). **They make ZERO AWS
+calls** and need no credentials, no network, and no live account. They validate the
+*shape* of what the `sentinel_harness.core` builder functions emit — the same
+invariants the Amazon Bedrock AgentCore control plane enforces server-side — plus the
+pure logic of the loader, registry, sandbox hooks, simulation driver, CLI, and the
+deterministic tool handlers, all checked locally so a defect fails in CI instead of
+silently at deploy time.
 
-## What is covered
+## Test files
 
-`test_config_validation.py`:
+| File | Count | Covers |
+|---|--:|---|
+| `test_config_validation.py` | 42 | core builder envelopes + harness-name / session-id / field-forwarding invariants (detailed below) |
+| `test_sandbox_hooks.py` | 33 | PreToolUse sandbox: command allowlist + path-containment checks |
+| `test_tool_handlers.py` | 29 | the four reference tool handlers (nvd / epss_kev / attack / web_search): input validation, stub payload shape, offline egress posture |
+| `test_sigma_yara_lint.py` | 24 | the functional Sigma/YARA linter: valid rules, hard errors, warnings, condition-ref checks, the minimal YAML fallback, determinism |
+| `test_cli.py` | 23 | `sentinel` CLI: alias→model, tool-spec→builder, memory-spec (incl. the `retrieval_config` regression), flat-config→kwargs, command dispatch (offline) |
+| `test_detection_gen_scenario.py` | 21 | detection-gen scenario: verdict parser, structured-verdict reconstruction, harness scoping |
+| `test_registry.py` | 20 | tool/skill registry dual-gate governance |
+| `test_simulation.py` | 11 | Play Mode driver: gating, checkpoint round-trip |
+| `test_loader.py` | 10 | `harness.yaml` → create_harness kwargs |
+
+## `test_config_validation.py` invariants
 
 | Invariant | Why it matters |
 |---|---|

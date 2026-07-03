@@ -6,11 +6,47 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- **HITL loop closed** — `core.invoke_with_tool_result()` resumes a paused session via
+  the two-message `toolUse`→`toolResult` contract; `core.invoke` reconstructs the paused
+  call (`toolUseId` + accumulated input) as `result["tool_use"]`. Live pause→approve→resume
+  trace in `scenarios/scenario_hitl_resume.py` (`evidence/hitl_resume_result.json`).
+- **YAML→harness loader** (`sentinel_harness/loader.py`) + `sentinel create <harness.yaml>`
+  — `${ENV_VAR}` expansion, `system_prompt.md` resolution, inline-HITL-gate injection, and
+  `model`/`tools`/`memory`/`allowedTools` passthrough, so `harnesses/*.yaml` are live, not illustrative.
+- **Layer 2 — Play Mode** (`sentinel_harness/simulation.py`, `scenarios/scenario_play_mode.py`):
+  adversary emulation where every offensive step is human-gated, with checkpoint/resume;
+  live-validated (`every_step_gated`, `reject_halts_plan`, `checkpoint_roundtrip`).
+- **Layer 3 — governance** (`sentinel_harness/registry.py`, `sentinel_harness/sandbox_hooks.py`):
+  a dual-gate tool/skill registry (live only if registered *and* code-mapped) and a
+  PreToolUse sandbox hook (command allowlist + path containment).
+- **Unit coverage for previously untested code**: the functional `sigma_yara_lint` linter,
+  the four reference tool handlers, and the `sentinel` CLI.
+
+### Fixed
+- CLI BYO-memory config silently dropped its retrieval tuning: `_build_memory` read the
+  removed `messages_count` key and passed it to `core.byo_memory`, whose second parameter
+  is now `retrieval_config` (`retrievalConfig`). Now reads the correct key (regression-tested).
+- Corrected two stale "roadmap item" comments (`core.tool_inline`, `loader.py` header) that
+  described already-shipped, live-validated features.
+
+### Changed
+- Detection-gen scenario defines success on **substance** (an independent verdict was
+  reached + the flawed rule was withheld from publish + no stray shell) with a robust prose
+  parser as fallback, rather than on whether the model emitted a structured tool call — a
+  known model-behavior quirk that `allowedTools` narrows but cannot force. Documented honestly.
+
+### Tests
+- Offline suite grown **42 → 213** (still zero AWS calls): `test_sigma_yara_lint.py` (24),
+  `test_tool_handlers.py` (29), `test_cli.py` (23), `test_sandbox_hooks.py` (33),
+  `test_registry.py` (20), `test_loader.py` (10), `test_simulation.py` (11), and
+  `test_detection_gen_scenario.py` (21) alongside the original config-validation set.
+
 ### Planned
-- YAML→harness loader so `harnesses/*.yaml` become live (env interpolation, `system_prompt.md` resolution, gateway/allowedTools mapping).
-- Close the human-in-the-loop contract: `invoke_with_tool_result()` two-message resume + a full pause→approve→resume evidence trace.
-- Layer 2 (Simulation): a minimal long-running Runtime + one HITL-gated simulated `exec_technique`.
-- Layer 3 (Foundation): runnable tool/skill registry + one PreToolUse sandbox hook.
+- Wire the reference `tools/` handlers to a live AgentCore Gateway; add an end-to-end
+  named-supervisor scenario that creates from `harnesses/*.yaml`.
+- Layer 3 remainder: Agent Factory provisioning, LiteLLM specialists, a Gateway CDK stack.
+- BAS / attack-path on a genuinely long-running Runtime (beyond the Play Mode driver).
 
 ## [0.1.0] — 2026-07-03
 

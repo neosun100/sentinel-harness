@@ -1,19 +1,19 @@
 /**
- * HarnessStack — a demo SecOps triage Harness via the NATIVE CFN type.
+ * HarnessStack - a demo SecOps triage Harness via the NATIVE CFN type.
  * =====================================================================
- * WHY (docs/BLUEPRINT.md §1 "agents as configuration"): a harness IS the agent —
+ * WHY (docs/BLUEPRINT.md §1 "agents as configuration"): a harness IS the agent -
  * a managed agentic loop (systemPrompt + model + limits) that the sentinel_harness
  * Python core creates at runtime via `core.create_harness(...)`. This stack
  * provisions the SAME thing declaratively so a triage agent can be stood up as
  * infrastructure and version-controlled alongside the Gateway/Registry/Memory
  * foundation.
  *
- * NATIVE TYPE — NO CUSTOM RESOURCE.
+ * NATIVE TYPE - NO CUSTOM RESOURCE.
  * ---------------------------------
  * `AWS::BedrockAgentCore::Harness` is a *registered, FULLY_MUTABLE* CloudFormation
  * resource type (verified via `aws cloudformation describe-type --type RESOURCE
  * --type-name AWS::BedrockAgentCore::Harness`). This corrects an earlier ROADMAP
- * assumption that a Lambda-backed custom resource would be needed — it is not. We
+ * assumption that a Lambda-backed custom resource would be needed - it is not. We
  * use a plain CDK L1 `CfnResource` on the native type; CloudFormation drives the
  * create/update/delete lifecycle directly (no bespoke handler, no drift risk).
  *
@@ -29,7 +29,7 @@
  * CreatedAt, UpdatedAt. `Ref` returns the primaryIdentifier (the ARN).
  *
  * The execution role ARN is supplied via props (from the shared iam.ts helpers or a
- * pre-existing role ARN passed through context) — it is NEVER hardcoded.
+ * pre-existing role ARN passed through context) - it is NEVER hardcoded.
  */
 import { Stack, StackProps, CfnResource, CfnOutput, Token } from "aws-cdk-lib";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -61,7 +61,7 @@ export interface HarnessStackProps extends StackProps {
   readonly timeoutSeconds?: number;
 }
 
-/** Demo triage system prompt — generic SecOps alert triage, no customer specifics. */
+/** Demo triage system prompt - generic SecOps alert triage, no customer specifics. */
 const DEMO_TRIAGE_SYSTEM_PROMPT = [
   "You are a SecOps alert-triage agent.",
   "Given a security alert, classify it as true-positive, false-positive, or needs-investigation,",
@@ -70,9 +70,9 @@ const DEMO_TRIAGE_SYSTEM_PROMPT = [
 ].join(" ");
 
 export class HarnessStack extends Stack {
-  /** The execution role — created here unless a pre-existing ARN was supplied. */
+  /** The execution role - created here unless a pre-existing ARN was supplied. */
   public readonly harnessRole?: iam.Role;
-  /** The raw Harness resource (native CFN L1 — no custom resource). */
+  /** The raw Harness resource (native CFN L1 - no custom resource). */
   public readonly harness: CfnResource;
   /** Harness ARN (GetAtt "Arn"), surfaced for `SENTINEL_HARNESS_ARN` wiring. */
   public readonly harnessArn: string;
@@ -104,7 +104,7 @@ export class HarnessStack extends Stack {
       executionRoleArn = this.harnessRole.roleArn;
     }
 
-    // --- The Harness itself (NATIVE CFN type — no custom resource). ---
+    // --- The Harness itself (NATIVE CFN type - no custom resource). ---
     // Property names match the live AWS::BedrockAgentCore::Harness schema exactly.
     this.harness = new CfnResource(this, "Harness", {
       type: "AWS::BedrockAgentCore::Harness",

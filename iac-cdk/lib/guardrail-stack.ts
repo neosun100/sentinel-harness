@@ -1,22 +1,22 @@
 /**
- * GuardrailStack — a Bedrock Guardrail that masks secrets/PII in tool responses.
+ * GuardrailStack - a Bedrock Guardrail that masks secrets/PII in tool responses.
  * ==============================================================================
  * WHY (docs/BLUEPRINT.md §2 "Gateway interceptor" + §4 injection/exfil defense):
  * tool responses are the untrusted surface. A compromised or prompt-injected tool
  * can try to smuggle live credentials (AWS keys, `sk-`/`ghp_` tokens) or PII back
- * to the model — from where an attacker exfiltrates them. This guardrail is the
+ * to the model - from where an attacker exfiltrates them. This guardrail is the
  * data-plane screen the Gateway execution role runs via `bedrock:ApplyGuardrail`
  * (see gateway-stack.ts "ApplyGuardrail" statement) on both directions of traffic.
  *
  * Two overlapping defenses in the sensitive-information policy:
- *   1. piiEntitiesConfig — managed PII detectors. AWS_SECRET_KEY is BLOCKed (a live
+ *   1. piiEntitiesConfig - managed PII detectors. AWS_SECRET_KEY is BLOCKed (a live
  *      secret must never round-trip); a couple of PII types (EMAIL, NAME) are
  *      ANONYMIZEd so ordinary casework text survives with identifiers masked.
- *   2. regexesConfig — custom patterns for secret shapes the managed detectors miss:
+ *   2. regexesConfig - custom patterns for secret shapes the managed detectors miss:
  *      an AWS access key id shape and a generic API-token shape (`sk-…`/`ghp_…`).
  *      Both ANONYMIZE so the surrounding response is still usable, minus the secret.
  *
- * SECURITY NOTE — the regex *patterns* below are assembled from character classes
+ * SECURITY NOTE - the regex *patterns* below are assembled from character classes
  * and concatenated fragments so NO literal secret (no `AKIA<16 chars>`, no real
  * `sk-<token>`) ever sits in this source file and trips the repo secret-scanner.
  * A pattern like `A[KS]IA[0-9A-Z]{16}` is a matcher, not a credential.
@@ -34,7 +34,7 @@ export interface GuardrailStackProps extends StackProps {
 }
 
 export class GuardrailStack extends Stack {
-  /** The Guardrail resource (L1 — the data-plane secret/PII screen). */
+  /** The Guardrail resource (L1 - the data-plane secret/PII screen). */
   public readonly guardrail: CfnGuardrail;
   /** An immutable published version of the guardrail. */
   public readonly guardrailVersion: CfnGuardrailVersion;
@@ -120,7 +120,7 @@ export class GuardrailStack extends Stack {
     });
     new CfnOutput(this, "GuardrailVersionNumber", {
       value: this.guardrailVersion.attrVersion,
-      description: "Pinned guardrail version — pass as SENTINEL_GUARDRAIL_VERSION to ApplyGuardrail.",
+      description: "Pinned guardrail version - pass as SENTINEL_GUARDRAIL_VERSION to ApplyGuardrail.",
       exportName: `${props.appName}-guardrail-version`,
     });
   }

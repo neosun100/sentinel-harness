@@ -1,15 +1,15 @@
 /**
- * IdentityStack — the Cognito identity provider for the Gateway CUSTOM_JWT path.
+ * IdentityStack - the Cognito identity provider for the Gateway CUSTOM_JWT path.
  * ==============================================================================
  * WHY (docs/BLUEPRINT.md §5 "human callers front the Gateway with Cognito/OAuth"):
  * the GatewayStack's CUSTOM_JWT authorizer needs an OIDC issuer plus the audience /
  * client ids to trust. This stack stands up a self-contained Cognito User Pool that
  * mints BOTH kinds of token the Gateway must accept:
  *
- *   1. HUMAN tokens — an interactive app client (SRP + OAuth authorization-code
+ *   1. HUMAN tokens - an interactive app client (SRP + OAuth authorization-code
  *      flow, NO client secret). Cognito ID tokens carry an `aud` claim = the app
  *      client id, so the Gateway trusts these via `allowedAudience`.
- *   2. MACHINE (M2M) tokens — a confidential app client (client secret) using the
+ *   2. MACHINE (M2M) tokens - a confidential app client (client secret) using the
  *      OAuth `client_credentials` grant against the pool's custom resource-server
  *      scope. This is the token a headless harness/service uses.
  *
@@ -71,7 +71,7 @@ export class IdentityStack extends Stack {
     const region = Stack.of(this).region;
     // A Cognito domainPrefix must be lowercase [a-z0-9-] only. When the stack is
     // region-agnostic (no CDK env), `acct`/`region` are UNRESOLVED CDK tokens like
-    // `${Token[AWS.Region.4]}` — embedding them yields braces/uppercase that fail
+    // `${Token[AWS.Region.4]}` - embedding them yields braces/uppercase that fail
     // validation at synth. So we only fold account/region into the suffix when they
     // are resolved concrete strings; otherwise fall back to a static lowercase-safe
     // prefix (`<appName>-auth`). An explicit context value still wins for a vanity domain.
@@ -84,7 +84,7 @@ export class IdentityStack extends Stack {
     const resourceServerId = props.resourceServerId ?? "sentinel";
 
     // --- User Pool: the OIDC issuer. LITE tier, self-signup OFF (admin-created
-    // users only — this is a governance-adjacent dev IdP, not a public sign-up). ---
+    // users only - this is a governance-adjacent dev IdP, not a public sign-up). ---
     this.userPool = new cognito.UserPool(this, "UserPool", {
       userPoolName: `${props.appName}-users`,
       featurePlan: cognito.FeaturePlan.LITE,

@@ -1,14 +1,14 @@
 /**
- * MemoryStack — AgentCore Memory with semantic + summarization strategies.
+ * MemoryStack - AgentCore Memory with semantic + summarization strategies.
  * =========================================================================
  * WHY (docs/BLUEPRINT.md §1 Layer-1 "feedback loop" + core.py `managed_memory`):
  * triage verdicts and FP/whitelist decisions are written to Memory so future
  * research/detection runs are grounded in prior facts rather than confabulated.
  *
  * Two strategies are provisioned:
- *   - SEMANTIC — long-term extracted facts, retrieved by relevance. This is what
+ *   - SEMANTIC - long-term extracted facts, retrieved by relevance. This is what
  *     grounds "have we seen this IOC / CVE / technique before".
- *   - SUMMARIZATION — rolling session summaries so long-running cases (malware
+ *   - SUMMARIZATION - rolling session summaries so long-running cases (malware
  *     detonation, campaign hunts) keep context across the ~8h session cap without
  *     replaying the full transcript.
  *
@@ -16,7 +16,7 @@
  * template on the `actorId` supplied at invoke time (core.py `invoke(..., actor_id=)`).
  * We template the strategy namespaces as `facts/{actorId}` and
  * `summaries/{actorId}/{sessionId}` so one tenant/analyst can never read another's
- * memory — the namespace IS the boundary (see core.py `managed_memory` docstring).
+ * memory - the namespace IS the boundary (see core.py `managed_memory` docstring).
  *
  * No L2 construct exists for `AWS::BedrockAgentCore::Memory` yet → raw CfnResource.
  * WHEN CFN support evolves, only the `type`/`properties`/strategy shape need review.

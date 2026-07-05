@@ -1,11 +1,11 @@
 /**
- * RegistryStack — AgentCore Registry + the DynamoDB tool/skill registry table.
+ * RegistryStack - AgentCore Registry + the DynamoDB tool/skill registry table.
  * =============================================================================
  * WHY (docs/BLUEPRINT.md §5 "Central skill/tool governance"): a capability is live
  * only if it appears in BOTH the AgentCore Registry AND the code TOOL_FACTORY_MAP
  * (mirrored by sentinel_harness/registry.py). This stack provisions the two
  * governance surfaces:
- *   1. An AgentCore Registry with autoApproval=FALSE — a specialist/agent goes
+ *   1. An AgentCore Registry with autoApproval=FALSE - a specialist/agent goes
  *      live only after a human review step (governance, not convenience).
  *   2. A DynamoDB table holding the declarative tool/skill allowlist (the same
  *      shape as registry/tools.yaml: name/owner/status/description), so SecOps can
@@ -19,7 +19,7 @@
  * is NOT YET a registered CloudFormation resource type (`aws cloudformation describe-type
  * --type RESOURCE --type-name AWS::BedrockAgentCore::Registry` returns TypeNotFoundException).
  * This stack therefore SYNTHS cleanly but would FAIL on deploy until AWS registers the
- * type — the DynamoDB governance table is fully deployable today.
+ * type - the DynamoDB governance table is fully deployable today.
  */
 import {
   Stack,
@@ -36,7 +36,7 @@ export interface RegistryStackProps extends StackProps {
   /** Logical app prefix (context `sentinel:appName`). */
   readonly appName: string;
   /**
-   * Registry auto-approval. Defaults to FALSE for governance — a registered
+   * Registry auto-approval. Defaults to FALSE for governance - a registered
    * agent/tool is not live until a human approves it. Overridable only via context
    * for non-prod experimentation; production governance keeps it false.
    */
@@ -85,7 +85,7 @@ export class RegistryStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    // GSI to list by lifecycle status (approved/pending/deprecated) — the query a
+    // GSI to list by lifecycle status (approved/pending/deprecated) - the query a
     // governance dashboard runs ("show everything pending review").
     this.registryTable.addGlobalSecondaryIndex({
       indexName: "by-status",

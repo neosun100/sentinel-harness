@@ -2,7 +2,7 @@
  * Shared least-privilege IAM role helpers for the sentinel-harness AgentCore stacks.
  * ===================================================================================
  * WHY this file exists: every AgentCore primitive (Gateway, Registry, Memory,
- * Harness, Runtime) runs under an *execution role* — a MACHINE identity. The house
+ * Harness, Runtime) runs under an *execution role* - a MACHINE identity. The house
  * rule (see docs/BLUEPRINT.md §5 "Auth") is that PEOPLE never map to an IAM
  * principal (they use Cognito/OAuth on the Gateway); only services do. These helpers
  * centralise that boundary so no stack hand-rolls an over-broad role.
@@ -12,7 +12,7 @@
  *   supports it, confined to this account via `aws:SourceAccount` so the role
  *   cannot be assumed cross-account by a confused-deputy caller.
  * - We grant Bedrock model *invoke* on inference-profile / foundation-model ARNs
- *   built from the deploy-time account/region — NO hardcoded account IDs.
+ *   built from the deploy-time account/region - NO hardcoded account IDs.
  * - Nothing here is customer- or company-specific.
  */
 import { Stack, Arn, ArnFormat } from "aws-cdk-lib";
@@ -44,7 +44,7 @@ export function agentcoreAssumedBy(scope: Construct): iam.ServicePrincipal {
  *
  * @param grantModelInvoke when true, allow `bedrock:InvokeModel*` on the account's
  *        inference-profile + foundation-model ARNs (cross-region inference pattern
- *        used by core.py's `global.*` / `us.*` model IDs). No account is hardcoded —
+ *        used by core.py's `global.*` / `us.*` model IDs). No account is hardcoded -
  *        the ARNs are synthesised from the deploy-time account/region.
  */
 export function makeExecutionRole(

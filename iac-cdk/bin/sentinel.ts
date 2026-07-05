@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * CDK app entry — wires the three Layer-3 AgentCore governance stacks.
+ * CDK app entry - wires the three Layer-3 AgentCore governance stacks.
  * ====================================================================
  * Deploy target is a NON-PROD account (docs/BLUEPRINT.md is explicit: security
  * workloads run in a non-prod account first). Account/region come from the
- * standard CDK environment — `CDK_DEFAULT_ACCOUNT`/`CDK_DEFAULT_REGION` or the
- * active AWS profile — NEVER hardcoded. Everything else is tuned via CDK context
+ * standard CDK environment - `CDK_DEFAULT_ACCOUNT`/`CDK_DEFAULT_REGION` or the
+ * active AWS profile - NEVER hardcoded. Everything else is tuned via CDK context
  * (see cdk.json `context` block or `-c key=value` on the CLI).
  *
  * Context keys:
@@ -91,7 +91,7 @@ const memory = new MemoryStack(app, `${appName}-memory`, {
 
 // --- M4 (L3 foundation): identity / network / guardrail / observability / harness. ---
 // The VPC interface endpoints are the only standing monthly cost, so they are OFF by
-// default (context `sentinel:deployVpcEndpoints=true` opts in — see network-stack.ts).
+// default (context `sentinel:deployVpcEndpoints=true` opts in - see network-stack.ts).
 const deployVpcEndpointsRaw = ctx<unknown>("sentinel:deployVpcEndpoints", false);
 const deployVpcEndpoints =
   typeof deployVpcEndpointsRaw === "boolean" ? deployVpcEndpointsRaw : String(deployVpcEndpointsRaw) === "true";
@@ -113,7 +113,7 @@ const identity = new IdentityStack(app, `${appName}-identity`, {
 const guardrail = new GuardrailStack(app, `${appName}-guardrail`, {
   env,
   appName,
-  description: "Sentinel Bedrock Guardrail — masks secrets/PII in tool responses (injection/exfil defense).",
+  description: "Sentinel Bedrock Guardrail - masks secrets/PII in tool responses (injection/exfil defense).",
 });
 
 const observability = new ObservabilityStack(app, `${appName}-observability`, {
@@ -121,7 +121,7 @@ const observability = new ObservabilityStack(app, `${appName}-observability`, {
   appName,
   budgetEmail: ctx<string | undefined>("sentinel:budgetEmail", undefined),
   budgetAmountUsd: Number(ctx<unknown>("sentinel:budgetAmountUsd", 50)) || 50,
-  description: "Sentinel observability — CloudWatch dashboard + TokensPerScenario metric + monthly budget alarm.",
+  description: "Sentinel observability - CloudWatch dashboard + TokensPerScenario metric + monthly budget alarm.",
 });
 
 const harness = new HarnessStack(app, `${appName}-harness`, {

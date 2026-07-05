@@ -1,5 +1,5 @@
 /**
- * NetworkStack — the min-cost private VPC with default-deny egress.
+ * NetworkStack - the min-cost private VPC with default-deny egress.
  * ==================================================================
  * WHY (docs/BLUEPRINT.md §2/§5 "egress control"): a SecOps harness must not be able
  * to phone home to the open internet. The classic pattern for that is a private
@@ -9,23 +9,23 @@
  * over PrivateLink (interface endpoints) + the free S3 Gateway endpoint.
  *
  * WHY isolated + PrivateLink is STRONGER *and* CHEAPER egress control than NAT:
- *   - STRONGER (default-deny): a NAT Gateway is default-*allow* — anything with a
+ *   - STRONGER (default-deny): a NAT Gateway is default-*allow* - anything with a
  *     0.0.0.0/0 route reaches the whole internet unless you bolt on egress
  *     firewalling. An ISOLATED subnet has NO 0.0.0.0/0 route and NO IGW, so the
  *     only reachable destinations are the exact AWS services we publish an endpoint
  *     for. Exfiltration to an attacker-controlled host is not "filtered", it is
  *     physically unroutable. The endpoint POLICIES then narrow even the AWS surface
- *     (e.g. STS only for this account) — allowlist, not denylist.
+ *     (e.g. STS only for this account) - allowlist, not denylist.
  *   - CHEAPER: a NAT Gateway bills ~$32/mo/AZ PLUS per-GB data processing on every
  *     byte, forever. The S3 Gateway endpoint is FREE. The interface endpoints are
- *     ~$7.2/mo/AZ each and, in this single-AZ design, are the ONLY standing cost —
+ *     ~$7.2/mo/AZ each and, in this single-AZ design, are the ONLY standing cost -
  *     and they are gated OFF by default (see `deployVpcEndpoints`), so a plain
  *     synth/deploy provisions the VPC at ZERO standing cost.
  *
  * COST GATING: the ~5 interface endpoints (~$27-34/mo total) are the only standing
  * charge. They are hidden behind the CDK context flag `deployVpcEndpoints`
  * (DEFAULT FALSE). With the flag off you get VPC + isolated subnet + SG + the free
- * S3 Gateway endpoint — nothing that bills. Flip it on for a real deploy:
+ * S3 Gateway endpoint - nothing that bills. Flip it on for a real deploy:
  *   npx cdk synth -c deployVpcEndpoints=true
  *
  * NOTHING here is customer- or company-specific; account/region come from the CDK
@@ -59,9 +59,9 @@ export interface NetworkStackProps extends StackProps {
 }
 
 export class NetworkStack extends Stack {
-  /** The private VPC — export so runtime/harness stacks can attach into it. */
+  /** The private VPC - export so runtime/harness stacks can attach into it. */
   public readonly vpc: ec2.Vpc;
-  /** SG allowing 443 only from within the VPC CIDR — export for the runtime. */
+  /** SG allowing 443 only from within the VPC CIDR - export for the runtime. */
   public readonly securityGroup: ec2.SecurityGroup;
 
   constructor(scope: Construct, id: string, props: NetworkStackProps) {
@@ -96,7 +96,7 @@ export class NetworkStack extends Stack {
     // the CIDR so the workload cannot open arbitrary outbound sockets even in-VPC.
     this.securityGroup = new ec2.SecurityGroup(this, "EndpointSecurityGroup", {
       vpc: this.vpc,
-      description: `${props.appName} intra-VPC HTTPS (443) only — no public ingress/egress.`,
+      description: `${props.appName} intra-VPC HTTPS (443) only - no public ingress/egress.`,
       // No default 0.0.0.0/0 egress rule: we add exactly the one rule we want below.
       allowAllOutbound: false,
     });
@@ -119,7 +119,7 @@ export class NetworkStack extends Stack {
       service: ec2.GatewayVpcEndpointAwsService.S3,
     });
 
-    // --- Interface endpoints (the ONLY standing cost) — gated OFF by default. ---
+    // --- Interface endpoints (the ONLY standing cost) - gated OFF by default. ---
     if (deployVpcEndpoints) {
       this.addInterfaceEndpoints(endpointRegion);
     }
@@ -127,7 +127,7 @@ export class NetworkStack extends Stack {
     // --- Outputs so the runtime-stack can consume the network. ---
     new CfnOutput(this, "VpcId", {
       value: this.vpc.vpcId,
-      description: "Private (isolated) VPC id — attach the AgentCore runtime here.",
+      description: "Private (isolated) VPC id - attach the AgentCore runtime here.",
       exportName: `${props.appName}-vpc-id`,
     });
     new CfnOutput(this, "IsolatedSubnetIds", {
@@ -162,12 +162,12 @@ export class NetworkStack extends Stack {
     const common = {
       privateDnsEnabled: true,
       securityGroups: [this.securityGroup],
-      // Single isolated subnet — CDK places one ENI there.
+      // Single isolated subnet - CDK places one ENI there.
       subnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED as const },
     };
 
     // Restrictive endpoint policy statement: allow the API calls the runtime makes,
-    // but ONLY from principals in this account. This is the allowlist boundary — the
+    // but ONLY from principals in this account. This is the allowlist boundary - the
     // endpoint refuses a call carrying credentials from any other account. Attached
     // per-endpoint via `.addToPolicy()` (the L2 has no `policyDocument` option). A
     // fresh statement per endpoint avoids sharing a mutable object across resources.

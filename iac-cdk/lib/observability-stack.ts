@@ -1,5 +1,5 @@
 /**
- * ObservabilityStack — cost + token visibility for the Sentinel harness.
+ * ObservabilityStack - cost + token visibility for the Sentinel harness.
  * =======================================================================
  * WHY (docs/BLUEPRINT.md observability + core.py `_consume_stream` metadata): every
  * harness invoke emits a `metadata` stream event carrying model usage (token
@@ -7,7 +7,7 @@
  * can watch spend-shaped load per scenario, and we bound real dollar spend with an
  * AWS Budgets alarm. Three surfaces are provisioned:
  *
- *   1. A LogGroup for sentinel scenario runs — short retention + DESTROY removal so
+ *   1. A LogGroup for sentinel scenario runs - short retention + DESTROY removal so
  *      a non-prod account never accretes orphaned logs or cost.
  *   2. A custom metric namespace "SentinelHarness" with a `TokensPerScenario`
  *      metric. Two emit paths are offered so callers can pick whichever is cheaper
@@ -15,7 +15,7 @@
  *        - direct PutMetricData from the harness (the `cloudwatch.Metric` below just
  *          *references* that namespace/metric for the dashboard + alarm), OR
  *        - a MetricFilter on the LogGroup that extracts a `tokens` field from a
- *          structured (JSON) log line — zero extra API calls, metric-from-logs.
+ *          structured (JSON) log line - zero extra API calls, metric-from-logs.
  *   3. A Dashboard (token trend graph + latest-value tile + a describing text
  *      panel) and a monthly cost `CfnBudget` (L1) that notifies an email at an 80%
  *      threshold.
@@ -51,7 +51,7 @@ export interface ObservabilityStackProps extends StackProps {
   readonly logRetentionDays?: number;
   /**
    * Monthly cost budget amount in USD (context `sentinel:budgetAmountUsd`, default
-   * 50). Small on purpose — a non-prod tripwire, not a production allocation.
+   * 50). Small on purpose - a non-prod tripwire, not a production allocation.
    */
   readonly budgetAmountUsd?: number;
   /**
@@ -130,7 +130,7 @@ export class ObservabilityStack extends Stack {
     this.dashboard.addWidgets(
       new cloudwatch.TextWidget({
         markdown: [
-          `# ${props.appName} — Sentinel Harness Observability`,
+          `# ${props.appName} - Sentinel Harness Observability`,
           "",
           `Token usage per scenario (\`${METRIC_NAMESPACE}/${TOKENS_METRIC_NAME}\`) and a`,
           `monthly cost budget tripwire. Metric data is emitted either directly by the`,
@@ -161,7 +161,7 @@ export class ObservabilityStack extends Stack {
 
     // --- 4. Monthly cost budget (L1) with an email notification at the threshold. ---
     // MONTHLY COST budget in USD. Notify on ACTUAL spend crossing the percentage
-    // threshold — a tripwire, not a hard cap (Budgets does not stop spend).
+    // threshold - a tripwire, not a hard cap (Budgets does not stop spend).
     this.budget = new budgets.CfnBudget(this, "MonthlyCostBudget", {
       budget: {
         budgetName,
@@ -203,7 +203,7 @@ export class ObservabilityStack extends Stack {
     });
     new CfnOutput(this, "LogGroupName", {
       value: this.scenarioLogGroup.logGroupName,
-      description: "Scenario LogGroup — set for harness logging + MetricFilter token extraction.",
+      description: "Scenario LogGroup - set for harness logging + MetricFilter token extraction.",
       exportName: `${props.appName}-observability-log-group`,
     });
     new CfnOutput(this, "MetricNamespace", {

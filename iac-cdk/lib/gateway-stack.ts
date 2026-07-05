@@ -1,5 +1,5 @@
 /**
- * GatewayStack — the AgentCore Gateway (single MCP ingress) + its execution role.
+ * GatewayStack - the AgentCore Gateway (single MCP ingress) + its execution role.
  * ================================================================================
  * WHY: the Gateway is the one policy-backed MCP surface every harness talks to
  * (docs/BLUEPRINT.md §2). All tool traffic funnels through it so SEMANTIC tool
@@ -7,11 +7,11 @@
  *
  * There is no L2 construct for `AWS::BedrockAgentCore::Gateway` yet, so we drop to
  * a raw `CfnResource`. WHEN CFN support evolves this resource type / property
- * shape may change — the type string and `properties` block below are the only
+ * shape may change - the type string and `properties` block below are the only
  * things to revisit; everything else (role, wiring, outputs) is stable CDK.
  *
  * Auth: `authorizerType` is CONTEXT-configurable and defaults to AWS_IAM (SigV4,
- * machine-to-machine — the accepted execution-role path). Set it to CUSTOM_JWT to
+ * machine-to-machine - the accepted execution-role path). Set it to CUSTOM_JWT to
  * front the Gateway with Cognito/OAuth for human callers (BLUEPRINT §5) by passing
  * `-c sentinel:gatewayAuthorizerType=CUSTOM_JWT` plus a JWT discovery URL; NO human
  * is ever mapped to an IAM principal.
@@ -42,7 +42,7 @@ export interface GatewayStackProps extends StackProps {
 }
 
 export class GatewayStack extends Stack {
-  /** The Gateway execution role — export so harness/runtime stacks can reference it. */
+  /** The Gateway execution role - export so harness/runtime stacks can reference it. */
   public readonly gatewayRole: iam.Role;
   /** The raw Gateway resource (CfnResource until an L2 exists). */
   public readonly gateway: CfnResource;
@@ -88,7 +88,7 @@ export class GatewayStack extends Stack {
     // --- Authorizer configuration ---
     const authorizerConfiguration = this.buildAuthorizerConfig(authorizerType, props);
 
-    // --- The Gateway itself (raw CFN — no L2 construct yet). ---
+    // --- The Gateway itself (raw CFN - no L2 construct yet). ---
     this.gateway = new CfnResource(this, "Gateway", {
       type: "AWS::BedrockAgentCore::Gateway",
       properties: {
@@ -131,7 +131,7 @@ export class GatewayStack extends Stack {
 
   /**
    * Build the `AuthorizerConfiguration` block for the chosen mode. AWS_IAM needs no
-   * extra config (SigV4 is implicit). CUSTOM_JWT REQUIRES a discovery URL — we fail
+   * extra config (SigV4 is implicit). CUSTOM_JWT REQUIRES a discovery URL - we fail
    * fast at synth if it is missing rather than deploy an open JWT authorizer.
    */
   private buildAuthorizerConfig(

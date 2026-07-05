@@ -127,6 +127,44 @@ def update_harness(harness_id, *, system_prompt=None, model=None, tools=None, sk
     return resp["harness"] if "harness" in resp else resp
 
 
+# ---------------------------------------------------------------- harness endpoints (promote-to-production)
+def create_harness_endpoint(harness_id, endpoint_name, *, target_version=None,
+                            description=None, **kw) -> dict:
+    """Create a harness *endpoint* — the promote-to-production mechanism.
+
+    WHY an endpoint (not an env-tag hack): a harness accrues immutable *versions*;
+    an endpoint is a stable, named pointer that decides which version production
+    traffic reaches. Promoting a passing harness = point an endpoint at it. Pin the
+    endpoint to a specific ``target_version`` for a controlled release, or omit it to
+    track the latest — the same test→staging→prod staging the eval loop drives
+    (ROADMAP §5.3: eval ≥ criteria ∧ human approval → CreateHarnessEndpoint).
+
+    ``targetVersion``/``description`` are sent only when not None so an omitted
+    optional never reaches the API as a null. ``kw`` passes straight through."""
+    args = dict(harnessId=harness_id, endpointName=endpoint_name)
+    if target_version is not None: args["targetVersion"] = target_version
+    if description is not None: args["description"] = description
+    args.update(kw)
+    resp = _control.create_harness_endpoint(**args)
+    return resp["endpoint"] if "endpoint" in resp else resp
+
+
+def get_harness_endpoint(harness_id, endpoint_name) -> dict:
+    """Fetch one endpoint (its status + the version it currently points at)."""
+    resp = _control.get_harness_endpoint(harnessId=harness_id, endpointName=endpoint_name)
+    return resp["endpoint"] if "endpoint" in resp else resp
+
+
+def list_harness_versions(harness_id) -> list:
+    """List a harness's immutable versions — the candidates an endpoint can pin."""
+    return _control.list_harness_versions(harnessId=harness_id)["harnessVersions"]
+
+
+def delete_harness_endpoint(harness_id, endpoint_name) -> dict:
+    """Delete an endpoint (teardown). Does not touch the harness or its versions."""
+    return _control.delete_harness_endpoint(harnessId=harness_id, endpointName=endpoint_name)
+
+
 def wait_ready(harness_id: str, timeout: int = 360) -> dict:
     t0 = time.time()
     while time.time() - t0 < timeout:

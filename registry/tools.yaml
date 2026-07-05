@@ -56,3 +56,13 @@ tools:
       No LLM; validates structured params and delegates to sentinel_harness.core.*
       Lets the agent-ops harness build and modify other harnesses without
       hand-writing HTTP (M1 self-iteration engine).
+
+  - name: run_evaluation
+    owner: platform
+    status: approved
+    description: >-
+      Deterministic evaluation-scoring tool for the M2 self-improvement loop:
+      score_answer / parse_verdict. Invokes a self-built LLM-judge harness via
+      sentinel_harness.core.invoke and parses a structured JSON verdict
+      (score/pass/reasons/suggestions); no other LLM reasoning. Lets the
+      self-improving harness gate promotions on a caller-defined pass bar.

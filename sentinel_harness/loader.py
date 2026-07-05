@@ -92,6 +92,23 @@ _INLINE_GATES: dict[str, dict] = {
             "required": ["summary"],
         },
     },
+    "request_promotion_approval": {
+        "description": (
+            "Request analyst sign-off before promoting a harness to production by "
+            "creating a harness endpoint (CreateHarnessEndpoint). Carries the harness "
+            "id, the intended endpoint name, and the rationale (passing score + what "
+            "changed). The AI may only request promotion, never promote unattended."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "harness_id": {"type": "string"},
+                "endpoint_name": {"type": "string"},
+                "rationale": {"type": "string"},
+            },
+            "required": ["harness_id"],
+        },
+    },
 }
 
 

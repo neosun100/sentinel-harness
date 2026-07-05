@@ -5,7 +5,7 @@
       "step": "create",
       "ok": true,
       "data": {
-        "harnessId": "sentinel_cve_triage-OoxI0sT5HG",
+        "harnessId": "sentinel_cve_triage-rEaL2nTHdR",
         "memory": {
           "managedMemoryConfiguration": {
             "strategies": [
@@ -21,7 +21,7 @@
       "step": "ready",
       "ok": true,
       "data": {
-        "id": "sentinel_cve_triage-OoxI0sT5HG"
+        "id": "sentinel_cve_triage-rEaL2nTHdR"
       }
     },
     {
@@ -33,11 +33,11 @@
           "code_interpreter",
           "request_human_review"
         ],
-        "reply_head": "Now I have the computed numbers. I'll immediately escalate to the human-review gate before issuing any recommendation.",
+        "reply_head": "The math is locked in. Now escalating to human review before issuing any remediation recommendation.",
         "usage": {
           "inputTokens": 5352,
-          "outputTokens": 610,
-          "totalTokens": 5962
+          "outputTokens": 791,
+          "totalTokens": 6143
         }
       }
     }

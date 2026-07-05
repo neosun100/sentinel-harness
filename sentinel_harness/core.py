@@ -48,7 +48,7 @@ _data = boto3.client(
 # --- Model IDs: use the cross-region-inference *pattern*; do not pin a version you
 #     can't verify. Override via env if you want a specific pinned id. ---
 MODEL_SONNET = os.environ.get("SENTINEL_MODEL_SONNET", "global.anthropic.claude-sonnet-4-6")
-MODEL_HAIKU = os.environ.get("SENTINEL_MODEL_HAIKU", "global.anthropic.claude-haiku-4-5")
+MODEL_HAIKU = os.environ.get("SENTINEL_MODEL_HAIKU", "global.anthropic.claude-haiku-4-5-20251001-v1:0")
 MODEL_OPUS = os.environ.get("SENTINEL_MODEL_OPUS", "us.anthropic.claude-opus-4-5-20251101-v1:0")
 
 
@@ -95,6 +95,38 @@ def create_harness(name, system_prompt, *, model=None, tools=None, skills=None,
     return _control.create_harness(**args)["harness"]
 
 
+def update_harness(harness_id, *, system_prompt=None, model=None, tools=None, skills=None,
+                   memory=None, allowed_tools=None, max_iterations=None, max_tokens=None,
+                   timeout_seconds=None, execution_role_arn=None, **kw) -> dict:
+    """Full-replacement update of an existing harness (UpdateHarness semantics: the
+    caller supplies the COMPLETE desired config; unspecified fields are not merged
+    server-side).
+
+    WHY full-replacement matters: an agent update is a read-modify-write of the
+    *whole* config — UpdateHarness does not patch, it replaces. Passing only the one
+    field you meant to change would silently drop every other field (tools, memory,
+    limits) that lives on the harness today. Callers (e.g. harness_ops) must therefore
+    read the current config, mutate it in memory, and pass the full desired shape here.
+
+    ``systemPrompt`` is normalized to the GA list shape ``[{"text": ...}]`` when given
+    (same as :func:`create_harness`). ``executionRoleArn`` falls back to :func:`_role`
+    since UpdateHarness treats an omitted role as clearing it.
+    """
+    args = dict(harnessId=harness_id, executionRoleArn=execution_role_arn or _role())
+    if system_prompt is not None: args["systemPrompt"] = [{"text": system_prompt}]
+    if model is not None: args["model"] = model
+    if tools is not None: args["tools"] = tools
+    if skills is not None: args["skills"] = skills
+    if memory is not None: args["memory"] = memory
+    if allowed_tools is not None: args["allowedTools"] = allowed_tools
+    if max_iterations is not None: args["maxIterations"] = max_iterations
+    if max_tokens is not None: args["maxTokens"] = max_tokens
+    if timeout_seconds is not None: args["timeoutSeconds"] = timeout_seconds
+    args.update(kw)
+    resp = _control.update_harness(**args)
+    return resp["harness"] if "harness" in resp else resp
+
+
 def wait_ready(harness_id: str, timeout: int = 360) -> dict:
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -119,6 +151,7 @@ def _consume_stream(stream) -> dict:
     out, events, stop, meta, tools_used = "", [], None, None, []
     cur = None          # tool call currently being assembled
     tool_use = None     # the completed pending call (if the loop paused on tool_use)
+    error = None        # first stream-level error, surfaced explicitly (not just in text)
     for ev in stream:
         for et, payload in ev.items():
             events.append(et)
@@ -143,10 +176,13 @@ def _consume_stream(stream) -> dict:
             elif et == "metadata":
                 meta = json.loads(json.dumps(payload, default=str))
             elif et in ("runtimeClientError", "validationException", "internalServerException"):
-                out += f"[STREAM-ERROR {et}: {json.dumps(payload, default=str)[:200]}]"
+                msg = f"{et}: {json.dumps(payload, default=str)[:200]}"
+                out += f"[STREAM-ERROR {msg}]"
+                if error is None:            # keep the FIRST error; surface it explicitly
+                    error = msg
     return {"text": out, "events": events, "stop_reason": stop,
             "tools_used": tools_used, "tool_use": tool_use if stop == "tool_use" else None,
-            "metadata": meta}
+            "metadata": meta, "error": error}
 
 
 def invoke(harness_arn: str, session_id: str, text: str, *, actor_id=None, **overrides) -> dict:

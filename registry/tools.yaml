@@ -46,3 +46,13 @@ tools:
     description: >-
       Egress-controlled, TEXT-ONLY open-web search (title/url/snippet). Pending
       SecOps approval of the egress allowlist for its single search chokepoint.
+
+  - name: harness_ops
+    owner: platform
+    status: approved
+    description: >-
+      Deterministic harness-lifecycle control tool for the meta-agent engine:
+      create / update / invoke / wait_ready / list / delete / create_endpoint.
+      No LLM; validates structured params and delegates to sentinel_harness.core.*
+      Lets the agent-ops harness build and modify other harnesses without
+      hand-writing HTTP (M1 self-iteration engine).

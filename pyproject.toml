@@ -15,7 +15,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["sentinel_harness"]
+packages = ["sentinel_harness", "intake"]
 
 [tool.ruff]
 target-version = "py310"

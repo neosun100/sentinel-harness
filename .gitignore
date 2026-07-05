@@ -16,6 +16,8 @@ uv.lock
 # CDK (iac-cdk/) build artifacts and deps
 node_modules/
 cdk.out/
+cdk.out*/
+cdk.out.*
 *.js.map
 
 # Terraform (iac-terraform/) local state, provider binaries, plans, and any

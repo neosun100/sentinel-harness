@@ -14,6 +14,12 @@
  * No L2 construct exists for `AWS::BedrockAgentCore::Registry`, so it is a raw
  * CfnResource; the DynamoDB table is a normal L2. WHEN CFN support evolves, only
  * the CfnResource `type`/`properties` need revisiting.
+ *
+ * HONEST STATUS: unlike the Gateway/Memory/Harness types, `AWS::BedrockAgentCore::Registry`
+ * is NOT YET a registered CloudFormation resource type (`aws cloudformation describe-type
+ * --type RESOURCE --type-name AWS::BedrockAgentCore::Registry` returns TypeNotFoundException).
+ * This stack therefore SYNTHS cleanly but would FAIL on deploy until AWS registers the
+ * type — the DynamoDB governance table is fully deployable today.
  */
 import {
   Stack,

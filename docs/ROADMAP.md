@@ -14,7 +14,7 @@ on **Amazon Bedrock AgentCore Harness**.
 
 **Two rules that must never be broken:**
 1. **Do not rewrite what is already live-validated** (`core` / `loader` / `factory` /
-   `registry` / the three shipped harnesses / six scenarios / five tools / the Gateway
+   `registry` / the three shipped harnesses / nine scenarios / nine tools / the Gateway
    helper / `sandbox_hooks` / `simulation`). Layer on top of them.
 2. **Every milestone ships live evidence** into `evidence/` (the existing "if it ran, it
    dropped a JSON + log" habit). Evidence precedes any "done" claim.
@@ -49,9 +49,9 @@ live) · 🟡 skeleton / partial · 🔴 gap.
 | `skills/` | `cve-triage-rubric` / `attack-path-reasoning` / `detection-writing-sop` / `ioc-vetting` | 🟩 | add domain skills as your SecOps program needs them |
 | `specialists/` | `cve-intel` only (import-safe A2A skeleton; container not built) | 🟡 | **missing** `attack-mapper` / `threat-hunt` / `adversarial-reviewer` |
 | `longrunning/` | `bas-runner` only (async-gen skeleton) | 🟡 | BAS case-generation + detection-replay logic, detonation microVM orchestration |
-| `iac-cdk/lib/` | `gateway` / `registry` / `memory` stacks + `iam` (synth-validated) | 🟡 | **missing** `network` / `harness-cr` / `runtime` / `observability` stacks |
-| `tests/` | 12 files, **295 offline passing** | ✅ | add tests with each new module |
-| `evidence/` | 5 live-evidence sets | ✅ | add one per milestone |
+| `iac-cdk/lib/` | 8 synth-green stacks — `gateway` / `registry` / `memory` / `network` / `identity` / `guardrail` / `observability` / `harness` (+ `iam`); `iac-terraform/` mirror is `terraform validate`-clean | ✅ | `guardrail` / `identity` / `observability` LIVE-deployed (us-east-1); `runtime` stack still to add |
+| `tests/` | 38 files, **740 offline passing** (+4 skipped) | ✅ | add tests with each new module |
+| `evidence/` | 13 live-evidence sets | ✅ | add one per milestone |
 
 ### 0.3 Fit score (vs. a full three-layer SecOps agent program)
 
@@ -180,8 +180,8 @@ Each milestone gives: **goal / files / reused APIs / acceptance (live evidence) 
 Suggest one feature branch per milestone.
 
 ### M0 — Environment & baseline reproduction (half a day)
-**Goal:** on a fresh machine, get all 295 offline tests green and reproduce ≥1 live scenario.
-- [ ] `uv sync` + `uv run pytest -q` → 295 passing (offline).
+**Goal:** on a fresh machine, get all 740 offline tests green and reproduce ≥1 live scenario.
+- [ ] `uv sync` + `uv run pytest -q` → 740 passing (+4 skipped) (offline).
 - [ ] Configure `SENTINEL_EXECUTION_ROLE_ARN` / `SENTINEL_REGION` / `AWS_PROFILE` (non-prod) — see `docs/SETUP.md`.
 - [ ] Run `scenarios/scenario_cve_triage.py`; compare `evidence/cve_triage_result.json` shape.
 - [ ] Run `scenarios/scenario_hitl_resume.py`; reproduce pause→approve→resume.
@@ -416,7 +416,7 @@ if eval.score >= criteria:
 ---
 
 ## 6. Testing & acceptance charter
-- **offline**: every new module gets `tests/test_*.py` (mock AWS); keep `uv run pytest -q` green (now 295, only grows).
+- **offline**: every new module gets `tests/test_*.py` (mock AWS); keep `uv run pytest -q` green (now 740, +4 skipped, only grows).
 - **config parity**: every new `harness.yaml` must pass `factory.provision_fleet(dry_run=True)` + `test_config_validation.py`.
 - **live evidence**: each milestone runs one real call, drops `evidence/<milestone>_result.json` + `.log`.
 - **governance**: each new tool keeps `registry.governance_check().ok == True`.

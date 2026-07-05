@@ -27,7 +27,7 @@
  * Non-prod target: self-signup is OFF and the pool uses removalPolicy DESTROY so
  * `cdk destroy` leaves no orphan. This is a dev identity provider, not a prod IdP.
  */
-import { Stack, StackProps, CfnOutput, RemovalPolicy, Duration } from "aws-cdk-lib";
+import { Stack, StackProps, CfnOutput, RemovalPolicy, Duration, Token } from "aws-cdk-lib";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import { Construct } from "constructs";
 
@@ -69,7 +69,17 @@ export class IdentityStack extends Stack {
     // an explicit `sentinel:cognitoDomainPrefix` context value still wins for a vanity domain.
     const acct = Stack.of(this).account;
     const region = Stack.of(this).region;
-    const autoSuffix = `${props.appName}-${acct.slice(-6)}-${region}`.toLowerCase().slice(0, 63);
+    // A Cognito domainPrefix must be lowercase [a-z0-9-] only. When the stack is
+    // region-agnostic (no CDK env), `acct`/`region` are UNRESOLVED CDK tokens like
+    // `${Token[AWS.Region.4]}` — embedding them yields braces/uppercase that fail
+    // validation at synth. So we only fold account/region into the suffix when they
+    // are resolved concrete strings; otherwise fall back to a static lowercase-safe
+    // prefix (`<appName>-auth`). An explicit context value still wins for a vanity domain.
+    const suffixBase =
+      Token.isUnresolved(acct) || Token.isUnresolved(region)
+        ? `${props.appName}-auth`
+        : `${props.appName}-${acct.slice(-6)}-${region}`;
+    const autoSuffix = suffixBase.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 63);
     const domainPrefix = props.cognitoDomainPrefix ?? autoSuffix;
     const resourceServerId = props.resourceServerId ?? "sentinel";
 

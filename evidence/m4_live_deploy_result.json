@@ -12,7 +12,7 @@
     },
     "identity": {
       "deployed": true,
-      "user_pool_id": "us-west-2_<REDACTED>",
+      "user_pool_id": "us-east-1_<REDACTED>",
       "oidc_discovery_reachable": true,
       "signing_alg": "RS256",
       "token_endpoint_present": true,

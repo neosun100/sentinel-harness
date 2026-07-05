@@ -107,9 +107,10 @@ export class GatewayStack extends Stack {
       },
     });
 
-    // GetAtt names follow the resource's CFN attributes; GatewayArn/GatewayId are the
-    // documented attributes. Fall back to a synthesised ARN if the attribute name
-    // drifts under a future CFN schema (documented above).
+    // GetAtt names follow the resource's CFN attributes; GatewayArn is the ARN
+    // attribute and GatewayIdentifier is the resource's primary identifier. Fall back
+    // to a synthesised ARN if the attribute name drifts under a future CFN schema
+    // (documented above).
     this.gatewayArn = Token.asString(this.gateway.getAtt("GatewayArn"));
 
     new CfnOutput(this, "GatewayArn", {

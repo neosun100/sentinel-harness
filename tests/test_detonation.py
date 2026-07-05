@@ -20,6 +20,7 @@ HARD RULE: dummy AWS env set before import; the runner is fully DI'd here.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 
@@ -301,3 +302,324 @@ def test_run_detonation_destroys_vm_even_when_halted(tmp_path):
     assert result["event"] == "plan_halted"
     # destroy-after-use holds even on a halt (destroy is in a finally).
     assert result["vm"]["state"] == DESTROYED
+
+
+# --------------------------------------------------------------------------- #
+# 8. run_detonation: session-cap turns into a restart_required event, and the  #
+#    VM is STILL destroyed in the finally (WIP-commit, not an error).          #
+# --------------------------------------------------------------------------- #
+class _CapLoop:
+    """A minimal loop stand-in whose .run() raises SessionCapReached, letting us
+    exercise run_detonation's restart branch without env fiddling. Mirrors the
+    BasRunnerLoop surface run_detonation touches (state/runner/checkpoint)."""
+
+    def __init__(self, checkpoint_path, steps_done):
+        self._cap = rl.SessionCapReached(checkpoint_path, steps_done)
+
+        class _Runner:
+            checkpoint_path = None
+
+            def verdict(self):
+                return {"capped": True}
+
+            def _log(self, note):
+                self.last_note = note
+
+        self.runner = _Runner()
+        self.runner.checkpoint_path = checkpoint_path
+
+    def run(self):
+        raise self._cap
+
+
+def test_run_detonation_session_cap_becomes_restart_required(tmp_path):
+    ep = _load_detonation_entrypoint()
+    ckpt = str(tmp_path / "cap.json")
+    loop = _CapLoop(ckpt, steps_done=1)
+    vm = OneShotMicroVM()
+    handle_session = "cap-session-000000000000000000"
+
+    result = ep.run_detonation(loop, vm=vm, session_id=handle_session)
+
+    assert result["event"] == "restart_required"
+    assert result["steps_done"] == 1
+    assert result["checkpoint_path"] == ckpt
+    assert result["reason"]  # str(cap) is surfaced
+    assert result["verdict"] == {"capped": True}
+    # destroy-after-use holds even when the session cap fires (finally).
+    assert result["vm"]["state"] == DESTROYED
+    assert result["vm"]["session_id"] == handle_session
+    # the destroy note was logged through the runner.
+    assert "destroyed" in getattr(loop.runner, "last_note", "").lower()
+
+
+# --------------------------------------------------------------------------- #
+# 9. The @app.entrypoint async-generator flow (offline; agentcore mocked out)  #
+# --------------------------------------------------------------------------- #
+def _drive(agen):
+    """Synchronously drain an async generator into a list of yielded events."""
+    async def _collect():
+        out = []
+        async for ev in agen:
+            out.append(ev)
+        return out
+
+    return asyncio.run(_collect())
+
+
+def _fresh_ep(tmp_path, monkeypatch):
+    """Load the entrypoint module and pin its checkpoint dir to a temp path so no
+    checkpoint files land in the cwd (12-factor env override)."""
+    monkeypatch.setenv("SENTINEL_DETONATION_CHECKPOINT_DIR", str(tmp_path / "ckpt"))
+    # Ensure the session cap is disabled unless a test opts in.
+    monkeypatch.delenv("SENTINEL_DETONATION_MAX_STEPS_PER_SESSION", raising=False)
+    return _load_detonation_entrypoint()
+
+
+def _patch_build_runner(ep, monkeypatch, fake, *, decision_fn=sim.auto_approve, captured=None):
+    """Replace ep.build_runner with an offline, AWS-free version that drives the
+    plan through our scripted FakeHarness. This is the module's own DI seam — it
+    builds a real PlayModeRunner (so GATE_NAME etc. stay intact) wired to fake
+    invoke/resume fns, still honoring the env-driven session cap via ep._session_cap().
+    """
+    def _build(harness_arn, *, plan=None, plan_id="detonation", session_id=None,
+               mode=rl.CONTINUOUS, resume=False, **_ignored):
+        if captured is not None:
+            captured["session_id"] = session_id
+            captured["plan_id"] = plan_id
+        runner = sim.PlayModeRunner(
+            harness_arn,
+            plan=plan or ep.DEFAULT_DETONATION_PLAN,
+            plan_id=plan_id,
+            session_id=session_id,
+            checkpoint_path=ep._checkpoint_path(plan_id),
+            invoke_fn=fake.invoke,
+            resume_fn=fake.resume,
+            decision_fn=decision_fn,
+            logger=lambda m: None,
+        )
+        return BasRunnerLoop(runner, mode=mode, max_steps_per_session=ep._session_cap())
+
+    monkeypatch.setattr(ep, "build_runner", _build)
+
+
+def test_entrypoint_missing_harness_arn_yields_error(tmp_path, monkeypatch):
+    ep = _fresh_ep(tmp_path, monkeypatch)
+    events = _drive(ep._detonation_entrypoint({}))
+    assert len(events) == 1
+    assert events[0]["event"] == "error"
+    assert "harness_arn" in events[0]["reason"]
+
+
+def test_entrypoint_none_payload_yields_error(tmp_path, monkeypatch):
+    """A None payload is normalised to {} → still the missing-arn error branch."""
+    ep = _fresh_ep(tmp_path, monkeypatch)
+    events = _drive(ep._detonation_entrypoint(None))
+    assert events == [
+        {"event": "error", "reason": "payload.harness_arn is required for a detonation run"}
+    ]
+
+
+def test_entrypoint_invalid_sample_reference_yields_error(tmp_path, monkeypatch):
+    ep = _fresh_ep(tmp_path, monkeypatch)
+    events = _drive(
+        ep._detonation_entrypoint(
+            {"harness_arn": ARN, "sample_s3_uri": "https://evil.example/malware.bin"}
+        )
+    )
+    assert len(events) == 1
+    assert events[0]["event"] == "error"
+    assert "invalid sample reference" in events[0]["reason"]
+
+
+def test_entrypoint_full_flow_started_then_result(tmp_path, monkeypatch):
+    """Drive the whole async-gen main flow offline: started(HEALTHY_BUSY) event,
+    then the terminal run_detonation result. auto_approve so the plan completes."""
+    ep = _fresh_ep(tmp_path, monkeypatch)
+
+    fake = FakeHarness()
+    _patch_build_runner(ep, monkeypatch, fake)
+
+    events = _drive(
+        ep._detonation_entrypoint(
+            {
+                "harness_arn": ARN,
+                "plan_id": "detoflow",
+                "session_id": SESSION,
+                "sample_s3_uri": "s3://dropbox/quarantine/xyz",
+                "plan": PLAN,
+            }
+        )
+    )
+
+    assert len(events) == 2
+    started, result = events
+    assert started["event"] == "started"
+    assert started["status"] == "HEALTHY_BUSY"
+    assert started["plan_id"] == "detoflow"
+    assert started["sample"]["s3_uri"] == "s3://dropbox/quarantine/xyz"
+
+    assert result["event"] == "plan_complete"
+    assert result["vm"]["state"] == DESTROYED
+    # every step was gated + resumed (offline, simulated) before VM teardown.
+    assert len(fake.resumes) == len(PLAN)
+
+
+def test_entrypoint_no_sample_started_event_has_null_sample(tmp_path, monkeypatch):
+    ep = _fresh_ep(tmp_path, monkeypatch)
+    fake = FakeHarness()
+    _patch_build_runner(ep, monkeypatch, fake)
+
+    events = _drive(ep._detonation_entrypoint({"harness_arn": ARN, "plan": PLAN}))
+    started, result = events
+    assert started["sample"] is None
+    assert result["event"] == "plan_complete"
+
+
+def test_entrypoint_session_id_falls_back_to_context(tmp_path, monkeypatch):
+    """When payload has no session_id, the runtimeSessionId comes from context."""
+    ep = _fresh_ep(tmp_path, monkeypatch)
+    fake = FakeHarness()
+    captured = {}
+    _patch_build_runner(ep, monkeypatch, fake, captured=captured)
+
+    class _Ctx:
+        session_id = "ctx-session-000000000000000000"
+
+    events = _drive(ep._detonation_entrypoint({"harness_arn": ARN, "plan": PLAN}, _Ctx()))
+    assert captured["session_id"] == "ctx-session-000000000000000000"
+    assert events[-1]["event"] == "plan_complete"
+
+
+def test_entrypoint_restart_required_when_session_capped(tmp_path, monkeypatch):
+    """A low per-session step cap makes the CONTINUOUS loop raise SessionCapReached
+    mid-plan; the entrypoint surfaces it as a restart_required terminal event."""
+    ep = _fresh_ep(tmp_path, monkeypatch)
+    monkeypatch.setenv("SENTINEL_DETONATION_MAX_STEPS_PER_SESSION", "1")
+
+    fake = FakeHarness()
+    _patch_build_runner(ep, monkeypatch, fake)
+
+    events = _drive(ep._detonation_entrypoint({"harness_arn": ARN, "plan": PLAN}))
+    started, result = events
+    assert started["event"] == "started"
+    assert result["event"] == "restart_required"
+    assert result["steps_done"] == 1
+    assert result["checkpoint_path"]  # WIP-committed for the resume
+    # destroy-after-use still holds even when the cap fires.
+    assert result["vm"]["state"] == DESTROYED
+
+
+# --------------------------------------------------------------------------- #
+# 10. add_async_task busy-ping wiring: HEALTHY_BUSY path + unavailable fallback #
+# --------------------------------------------------------------------------- #
+def test_entrypoint_add_async_task_invoked_when_in_image(tmp_path, monkeypatch):
+    """When running 'in-image' (agentcore present), the async task is registered
+    so the ping reports HEALTHY_BUSY. Simulated with a fake app; no AWS."""
+    ep = _fresh_ep(tmp_path, monkeypatch)
+
+    calls = []
+
+    class _FakeApp:
+        def add_async_task(self, name):
+            calls.append(name)
+
+    monkeypatch.setattr(ep, "_HAS_AGENTCORE", True)
+    monkeypatch.setattr(ep, "app", _FakeApp())
+
+    fake = FakeHarness()
+    _patch_build_runner(ep, monkeypatch, fake)
+
+    events = _drive(ep._detonation_entrypoint({"harness_arn": ARN, "plan": PLAN}))
+    assert calls == ["detonation_plan"]
+    assert events[0]["event"] == "started"
+    assert events[-1]["event"] == "plan_complete"
+
+
+def test_entrypoint_add_async_task_unavailable_falls_back(tmp_path, monkeypatch, capsys):
+    """If add_async_task raises (wiring unavailable), the run must NOT fail — it
+    logs and continues to produce the started + terminal events."""
+    ep = _fresh_ep(tmp_path, monkeypatch)
+
+    class _FlakyApp:
+        def add_async_task(self, name):
+            raise RuntimeError("async task wiring unavailable")
+
+    monkeypatch.setattr(ep, "_HAS_AGENTCORE", True)
+    monkeypatch.setattr(ep, "app", _FlakyApp())
+
+    fake = FakeHarness()
+    _patch_build_runner(ep, monkeypatch, fake)
+
+    events = _drive(ep._detonation_entrypoint({"harness_arn": ARN, "plan": PLAN}))
+    # The run survived the flaky heartbeat wiring.
+    assert events[0]["event"] == "started"
+    assert events[-1]["event"] == "plan_complete"
+    out = capsys.readouterr().out
+    assert "add_async_task unavailable" in out
+
+
+# --------------------------------------------------------------------------- #
+# 11. build_runner: fresh construction, resume-from-checkpoint, cap wiring      #
+# --------------------------------------------------------------------------- #
+def test_build_runner_fresh_builds_loop_over_default_plan(tmp_path, monkeypatch):
+    """build_runner with resume=False builds a loop over the DEFAULT plan (no
+    checkpoint read). No AWS: we only construct, never .run()."""
+    ep = _fresh_ep(tmp_path, monkeypatch)
+    loop = ep.build_runner(ARN, plan_id="detobuild", session_id=SESSION)
+    assert isinstance(loop, BasRunnerLoop)
+    # default plan wired in (three illustrative steps).
+    assert len(loop.state.steps) == len(ep.DEFAULT_DETONATION_PLAN)
+    assert loop.runner.checkpoint_path.endswith("detobuild.json")
+    # session cap unset -> disabled.
+    assert loop.max_steps_per_session is None
+
+
+def test_build_runner_honors_session_cap_env(tmp_path, monkeypatch):
+    ep = _fresh_ep(tmp_path, monkeypatch)
+    monkeypatch.setenv("SENTINEL_DETONATION_MAX_STEPS_PER_SESSION", "2")
+    loop = ep.build_runner(ARN, plan_id="detocap", session_id=SESSION)
+    assert loop.max_steps_per_session == 2
+
+
+def test_build_runner_resume_reads_existing_checkpoint(tmp_path, monkeypatch):
+    """resume=True with an existing checkpoint rebuilds from it (resume path,
+    not a fresh construction)."""
+    ep = _fresh_ep(tmp_path, monkeypatch)
+    plan_id = "detoresume"
+
+    # First, create a real checkpoint by building a fresh loop and checkpointing.
+    seed = ep.build_runner(ARN, plan=PLAN, plan_id=plan_id, session_id=SESSION)
+    seed.runner._checkpoint()
+    ckpt = ep._checkpoint_path(plan_id)
+    assert os.path.isfile(ckpt)
+
+    # Now resume=True must load that checkpoint rather than start fresh.
+    resumed = ep.build_runner(ARN, plan_id=plan_id, session_id=SESSION, resume=True)
+    assert resumed.runner.checkpoint_path == ckpt
+    assert resumed.state.session_id == SESSION
+    assert len(resumed.state.steps) == len(PLAN)
+
+
+def test_build_runner_resume_without_checkpoint_starts_fresh(tmp_path, monkeypatch):
+    """resume=True but NO checkpoint on disk -> falls through to a fresh runner."""
+    ep = _fresh_ep(tmp_path, monkeypatch)
+    loop = ep.build_runner(ARN, plan=PLAN, plan_id="detomissing",
+                           session_id=SESSION, resume=True)
+    assert len(loop.state.steps) == len(PLAN)
+
+
+# --------------------------------------------------------------------------- #
+# 12. _session_cap: invalid (non-int) env value raises a clear ValueError       #
+# --------------------------------------------------------------------------- #
+def test_session_cap_invalid_env_raises(tmp_path, monkeypatch):
+    ep = _fresh_ep(tmp_path, monkeypatch)
+    monkeypatch.setenv("SENTINEL_DETONATION_MAX_STEPS_PER_SESSION", "not-an-int")
+    with pytest.raises(ValueError, match="must be an int"):
+        ep._session_cap()
+
+
+def test_session_cap_unset_is_none(tmp_path, monkeypatch):
+    ep = _fresh_ep(tmp_path, monkeypatch)
+    monkeypatch.delenv("SENTINEL_DETONATION_MAX_STEPS_PER_SESSION", raising=False)
+    assert ep._session_cap() is None

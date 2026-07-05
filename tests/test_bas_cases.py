@@ -273,3 +273,264 @@ def test_replay_surfaces_matcher_validation_error():
 def test_replay_rejects_malformed_case():
     with pytest.raises(ValueError):
         bas.replay([{"name": "missing technique id"}], [POWERSHELL_RULE])
+
+
+# --------------------------------------------------------------------------- #
+# generate_cases — unknown / empty / whitespace filters                       #
+# --------------------------------------------------------------------------- #
+def test_generate_empty_sequence_returns_no_cases():
+    # An empty (but not None) filter selects nothing — distinct from None which
+    # returns the whole library.
+    assert bas.generate_cases([]) == []
+
+
+def test_whitespace_only_technique_id_raises():
+    # A whitespace-only string is "empty" after strip and must be rejected
+    # (same branch as the empty-string case, exercised via .strip()).
+    with pytest.raises(ValueError):
+        bas.generate_cases(["   "])
+
+
+def test_non_string_technique_id_raises():
+    with pytest.raises(ValueError):
+        bas.generate_cases([12345])  # type: ignore[list-item]
+
+
+def test_unknown_id_mixed_with_known_still_raises():
+    # A single unknown id anywhere in the request fails the whole call rather
+    # than silently dropping it (would hide a real gap in the case set).
+    with pytest.raises(ValueError):
+        bas.generate_cases(["T1059.001", "T0000.999"])
+
+
+# --------------------------------------------------------------------------- #
+# replay — multiple simulated events, only some of which match                #
+# --------------------------------------------------------------------------- #
+def test_replay_case_with_multiple_events_only_one_matches():
+    # A case carrying several simulated events where only ONE event trips the
+    # rule must still be DETECTED (a case fires if *any* event matches). This
+    # exercises the inner event loop's "keep scanning until a match" path.
+    case = {
+        "technique_id": "T1059.001",
+        "name": "PowerShell (multi-event)",
+        "simulated_events": [
+            # First event: benign, does NOT match the encoded-command rule.
+            {
+                "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                "CommandLine": "powershell.exe -Command Get-Date",
+            },
+            # Second event: the malicious one the rule catches (-enc).
+            {
+                "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                "CommandLine": "powershell.exe -nop -w hidden -enc SQBFAFgA",
+            },
+        ],
+    }
+    report = bas.replay([case], [POWERSHELL_RULE])
+    assert report["detected_count"] == 1
+    assert report["blind_spots"] == []
+    assert report["coverage"] == 1.0
+    assert report["results"][0]["matched_rules"] == [
+        "Suspicious PowerShell Encoded Command"
+    ]
+
+
+def test_replay_case_with_multiple_events_none_match_is_blind_spot():
+    # Same shape, but NO event trips the rule -> the technique is a blind spot.
+    case = {
+        "technique_id": "T1059.001",
+        "name": "PowerShell (multi-event, benign only)",
+        "simulated_events": [
+            {"Image": "C:\\powershell.exe", "CommandLine": "powershell -Command ls"},
+            {"Image": "C:\\powershell.exe", "CommandLine": "powershell -Command pwd"},
+        ],
+    }
+    report = bas.replay([case], [POWERSHELL_RULE])
+    assert report["detected_count"] == 0
+    assert report["blind_spots"] == ["T1059.001"]
+    assert report["coverage"] == 0.0
+
+
+# --------------------------------------------------------------------------- #
+# replay — coverage ratio at the exact extremes (0.0 and 1.0)                 #
+# --------------------------------------------------------------------------- #
+def test_coverage_ratio_exactly_zero():
+    # Every technique in the library is a blind spot -> coverage is exactly 0.0.
+    cases = bas.generate_cases()
+    report = bas.replay(cases, [NEVER_MATCH_RULE])
+    assert report["detected_count"] == 0
+    assert report["coverage"] == 0.0
+    assert report["blind_spots"] == [c["technique_id"] for c in cases]
+
+
+def test_coverage_ratio_exactly_one():
+    # Two rules that between them cover both requested techniques -> coverage 1.0.
+    cases = bas.generate_cases(["T1059.001", "T1547.001"])
+    report = bas.replay(cases, [POWERSHELL_RULE, RUNKEY_RULE])
+    assert report["detected_count"] == report["total_cases"] == 2
+    assert report["coverage"] == 1.0
+    assert report["blind_spots"] == []
+
+
+# --------------------------------------------------------------------------- #
+# replay — rule labeling: title / id fallback / positional fallback           #
+# --------------------------------------------------------------------------- #
+def test_rule_label_falls_back_to_id_when_no_title():
+    # A dict rule with no 'title' but an 'id' is labeled by its id.
+    dict_rule = {
+        "id": "no-title-but-has-id-0001",
+        "detection": {
+            "selection": {"CommandLine|contains": "-enc"},
+            "condition": "selection",
+        },
+    }
+    report = bas.replay(bas.generate_cases(["T1059.001"]), [dict_rule])
+    assert report["results"][0]["matched_rules"] == ["no-title-but-has-id-0001"]
+
+
+def test_rule_label_falls_back_to_positional_when_no_title_or_id():
+    # A rule carrying neither title nor id gets a positional "rule[<index>]"
+    # label so it stays identifiable in the report.
+    dict_rule = {
+        "detection": {
+            "selection": {"CommandLine|contains": "-enc"},
+            "condition": "selection",
+        },
+    }
+    report = bas.replay(bas.generate_cases(["T1059.001"]), [dict_rule])
+    assert report["results"][0]["matched_rules"] == ["rule[0]"]
+
+
+def test_rule_label_blank_title_falls_through_to_id():
+    # A whitespace-only title is treated as absent; labeling falls to 'id'.
+    dict_rule = {
+        "title": "   ",
+        "id": "blank-title-id-0002",
+        "detection": {
+            "selection": {"CommandLine|contains": "-enc"},
+            "condition": "selection",
+        },
+    }
+    report = bas.replay(bas.generate_cases(["T1059.001"]), [dict_rule])
+    assert report["results"][0]["matched_rules"] == ["blank-title-id-0002"]
+
+
+def test_yaml_string_rule_label_uses_title():
+    # A YAML *string* rule is parsed via the matcher's own parser for labeling.
+    report = bas.replay(bas.generate_cases(["T1059.001"]), [POWERSHELL_RULE])
+    assert report["results"][0]["matched_rules"] == [
+        "Suspicious PowerShell Encoded Command"
+    ]
+
+
+def test_parse_rule_for_label_swallows_parser_error_returns_none(monkeypatch):
+    # The cosmetic label parser must NEVER propagate a parse error: when the
+    # matcher's _parse_yaml raises, _parse_rule_for_label returns None so the
+    # caller can fall back to a positional label. Patching only affects labeling
+    # here because we call the helper directly (no matcher evaluation involved).
+    def _boom(_text):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(bas._SIGMA_MATCH_MODULE, "_parse_yaml", _boom)
+    assert bas._parse_rule_for_label("title: whatever") is None
+
+
+def test_rule_id_falls_back_to_positional_on_unparseable_string(monkeypatch):
+    # When labeling a YAML *string* whose parse fails, _rule_id must fall back to
+    # the positional "rule[<index>]" label rather than raising.
+    def _boom(_text):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(bas._SIGMA_MATCH_MODULE, "_parse_yaml", _boom)
+    assert bas._rule_id("title: broken", 3) == "rule[3]"
+
+
+def test_rule_id_string_without_title_or_id_is_positional():
+    # A parseable YAML string carrying neither title nor id -> positional label.
+    yaml_no_meta = (
+        "detection:\n"
+        "    selection:\n"
+        "        CommandLine|contains: '-enc'\n"
+        "    condition: selection\n"
+    )
+    assert bas._rule_id(yaml_no_meta, 5) == "rule[5]"
+
+
+# --------------------------------------------------------------------------- #
+# replay — malformed-case edge branches                                       #
+# --------------------------------------------------------------------------- #
+def test_replay_rejects_non_dict_case():
+    # A non-dict entry in the case list is a hard error.
+    with pytest.raises(ValueError):
+        bas.replay(["not-a-dict"], [POWERSHELL_RULE])  # type: ignore[list-item]
+
+
+def test_replay_rejects_non_list_simulated_events():
+    # 'simulated_events' must be a list; a string (or any non-list) is rejected.
+    bad_case = {"technique_id": "T1059.001", "name": "bad", "simulated_events": "nope"}
+    with pytest.raises(ValueError):
+        bas.replay([bad_case], [POWERSHELL_RULE])
+
+
+def test_replay_rejects_blank_technique_id():
+    bad_case = {"technique_id": "   ", "name": "blank id", "simulated_events": []}
+    with pytest.raises(ValueError):
+        bas.replay([bad_case], [POWERSHELL_RULE])
+
+
+# --------------------------------------------------------------------------- #
+# module loader — error branches                                              #
+# --------------------------------------------------------------------------- #
+def test_load_sigma_match_missing_handler_path_raises(monkeypatch):
+    # If the matcher file is absent, the loader raises rather than degrading.
+    monkeypatch.setattr(bas, "_sigma_match_handler_path", lambda: "/no/such/handler.py")
+    with pytest.raises(ImportError):
+        bas._load_sigma_match_module()
+
+
+def test_load_sigma_match_spec_none_raises(monkeypatch):
+    # A real, existing path but a None spec (importlib can't build one) raises.
+    monkeypatch.setattr(bas.importlib.util, "spec_from_file_location", lambda *a, **k: None)
+    with pytest.raises(ImportError):
+        bas._load_sigma_match_module()
+
+
+def test_load_sigma_match_no_handler_attr_raises(monkeypatch):
+    # A module that loads fine but exposes no 'handler' callable is rejected.
+    class _FakeSpec:
+        loader = type("L", (), {"exec_module": staticmethod(lambda mod: None)})()
+
+    monkeypatch.setattr(
+        bas.importlib.util, "spec_from_file_location", lambda *a, **k: _FakeSpec()
+    )
+    monkeypatch.setattr(
+        bas.importlib.util,
+        "module_from_spec",
+        lambda spec: type("M", (), {})(),  # bare module object, no 'handler'
+    )
+    with pytest.raises(ImportError):
+        bas._load_sigma_match_module()
+
+
+# --------------------------------------------------------------------------- #
+# __main__ demo block — importable & runnable offline, prints a valid report  #
+# --------------------------------------------------------------------------- #
+def test_main_demo_block_runs_and_prints_report(capfd):
+    # Execute the module as __main__ so the demo/CLI block (its json.dumps of a
+    # real replay) is exercised end-to-end, fully offline. runpy runs the file
+    # under run_name="__main__", tripping the `if __name__ == "__main__":` guard
+    # without clobbering the module-level `bas` import above.
+    import json
+    import runpy
+
+    runpy.run_path(_MODULE_PATH, run_name="__main__")
+
+    out, _ = capfd.readouterr()
+    report = json.loads(out)
+    # The demo rule only catches PowerShell -> every other technique is blind.
+    assert report["total_cases"] == len(bas.BAS_CASES)
+    assert report["detected_count"] == 1
+    assert "T1059.001" not in report["blind_spots"]
+    assert set(report["blind_spots"]) == {
+        c["technique_id"] for c in bas.BAS_CASES if c["technique_id"] != "T1059.001"
+    }

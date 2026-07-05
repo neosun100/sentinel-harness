@@ -354,6 +354,302 @@ def test_build_attack_paths_rejects_malformed_surface():
         agent_a2a.build_attack_paths({"hosts": [{"no_id": True}]})
 
 
+def test_build_attack_paths_rejects_non_dict_surface():
+    """A non-dict surface is a caller bug -> ValueError, never a silent empty."""
+    with pytest.raises(ValueError):
+        agent_a2a.build_attack_paths("not-a-surface")  # type: ignore[arg-type]
+
+
+def test_known_vuln_service_scans_past_patched_services():
+    """_known_vuln_service skips leading patched services and returns the first
+    known-vuln one; returns None when a host carries no vuln service at all."""
+    host = {
+        "id": "h",
+        "services": [
+            {"name": "ssh", "known_vuln": False},
+            {"name": "https", "known_vuln": True, "cve_id": "CVE-2021-44228"},
+        ],
+    }
+    svc = agent_a2a._known_vuln_service(host)
+    assert svc is not None and svc["cve_id"] == "CVE-2021-44228"
+    # No vuln service -> None (covers the exhausted-loop return).
+    assert agent_a2a._known_vuln_service(
+        {"id": "clean", "services": [{"name": "ssh", "known_vuln": False}]}
+    ) is None
+
+
+def test_load_gateway_tools_live_path_with_stubbed_mcp(monkeypatch):
+    """When a Gateway URL IS configured, _load_gateway_tools starts an MCP client
+    and returns its tools. We stub mcp + strands.tools.mcp so no network happens."""
+    events = {}
+
+    class _Client:
+        def __init__(self, factory):
+            events["factory"] = factory
+
+        def start(self):
+            events["started"] = True
+
+        def list_tools_sync(self):
+            return ["asset_lookup", "attack_lookup"]
+
+    strands_mod = types.ModuleType("strands")
+    tools_mod = types.ModuleType("strands.tools")
+    mcp_sub = types.ModuleType("strands.tools.mcp")
+    mcp_sub.MCPClient = _Client
+    mcp_pkg = types.ModuleType("mcp")
+    mcp_client_pkg = types.ModuleType("mcp.client")
+    streamable_mod = types.ModuleType("mcp.client.streamable_http")
+    streamable_mod.streamablehttp_client = lambda url: ("conn", url)
+
+    monkeypatch.setitem(sys.modules, "strands", strands_mod)
+    monkeypatch.setitem(sys.modules, "strands.tools", tools_mod)
+    monkeypatch.setitem(sys.modules, "strands.tools.mcp", mcp_sub)
+    monkeypatch.setitem(sys.modules, "mcp", mcp_pkg)
+    monkeypatch.setitem(sys.modules, "mcp.client", mcp_client_pkg)
+    monkeypatch.setitem(sys.modules, "mcp.client.streamable_http", streamable_mod)
+
+    tools = agent_a2a._load_gateway_tools("https://gw.example/mcp")
+    assert tools == ["asset_lookup", "attack_lookup"]
+    assert events["started"] is True
+
+
+def test_build_attack_paths_rejects_non_list_trust_edges():
+    """trust_edges present but not a list must raise, not silently degrade."""
+    surface = {"hosts": [{"id": "h1"}], "trust_edges": {"src": "h1", "dst": "h2"}}
+    with pytest.raises(ValueError):
+        agent_a2a.build_attack_paths(surface)
+
+
+def test_build_attack_paths_rejects_edge_missing_src_or_dst():
+    """A trust edge lacking 'src'/'dst' is a malformed graph -> ValueError."""
+    surface = {
+        "hosts": [{"id": "h1", "internet_exposed": True,
+                   "services": [{"name": "https", "known_vuln": True}]}],
+        "trust_edges": [{"src": "h1"}],  # no dst
+    }
+    with pytest.raises(ValueError):
+        agent_a2a.build_attack_paths(surface)
+
+
+def test_build_attack_paths_skips_edge_to_unknown_host():
+    """An edge whose dst is out of surface is skipped (destination unknown),
+    so the entry still yields its length-1 foothold chain and no phantom hop."""
+    surface = {
+        "hosts": [
+            {"id": "edge-01", "internet_exposed": True,
+             "services": [{"name": "https", "known_vuln": True,
+                           "cve_id": "CVE-2021-44228"}]},
+        ],
+        # dst 'ghost-99' is not a host in the surface -> must be skipped.
+        "trust_edges": [{"src": "edge-01", "dst": "ghost-99", "kind": "flat_network"}],
+    }
+    chains = agent_a2a.build_attack_paths(surface)
+    assert [c["path"] for c in chains] == [["edge-01"]]
+    assert chains[0]["edges"] == []
+
+
+def test_build_attack_paths_respects_max_depth():
+    """max_depth caps chain length: at depth 1 the pivot is never traversed."""
+    surface = {
+        "hosts": [
+            {"id": "e1", "internet_exposed": True,
+             "services": [{"name": "https", "known_vuln": True,
+                           "cve_id": "CVE-2021-44228"}]},
+            {"id": "e2", "internet_exposed": False,
+             "services": [{"name": "postgres", "known_vuln": False}]},
+        ],
+        "trust_edges": [{"src": "e1", "dst": "e2", "kind": "flat_network"}],
+    }
+    capped = agent_a2a.build_attack_paths(surface, max_depth=1)
+    assert [c["path"] for c in capped] == [["e1"]]
+    # Without the cap the pivot IS traversed (sanity: depth actually bit).
+    uncapped = agent_a2a.build_attack_paths(surface)
+    assert ["e1", "e2"] in [c["path"] for c in uncapped]
+
+
+def test_build_attack_paths_entry_cve_none_when_vuln_service_has_no_cve():
+    """A known-vuln entry service without a cve_id yields entry_cve == None
+    (we surface the vuln foothold, not a phantom CVE)."""
+    surface = {
+        "hosts": [
+            {"id": "nocve-01", "internet_exposed": True,
+             "services": [{"name": "https", "known_vuln": True}]},  # no cve_id key
+        ],
+        "trust_edges": [],
+    }
+    chains = agent_a2a.build_attack_paths(surface)
+    assert len(chains) == 1
+    assert chains[0]["entry_cve"] is None
+
+
+def test_build_attack_paths_default_impact_and_labels():
+    """A reachable host with no services falls back to _DEFAULT_IMPACT and the
+    chain gets a 'low' label; a mid-impact ssh target lands in 'medium'/'high'."""
+    surface = {
+        "hosts": [
+            {"id": "entry", "internet_exposed": True,
+             "services": [{"name": "https", "known_vuln": True,
+                           "cve_id": "CVE-2021-44228"}]},
+            # No 'services' key at all -> _host_impact returns _DEFAULT_IMPACT.
+            {"id": "bare", "internet_exposed": False},
+            {"id": "sshbox", "internet_exposed": False,
+             "services": [{"name": "ssh", "known_vuln": False}]},
+        ],
+        "trust_edges": [
+            {"src": "entry", "dst": "bare", "kind": "flat_network"},
+            {"src": "entry", "dst": "sshbox", "kind": "ssh_key_reuse"},
+        ],
+    }
+    chains = agent_a2a.build_attack_paths(surface)
+    by_target = {c["path"][-1]: c for c in chains}
+    # entry -> bare: exploitability (1-0.5)=0.5 * _DEFAULT_IMPACT(0.4) = 0.2 -> medium.
+    assert by_target["bare"]["score"] == pytest.approx(0.2)
+    assert by_target["bare"]["impact"] == "medium"
+    # entry -> sshbox: (1-0.2)=0.8 * ssh impact(0.5) = 0.4 -> high.
+    assert by_target["sshbox"]["score"] == pytest.approx(0.4)
+    assert by_target["sshbox"]["impact"] == "high"
+
+
+def test_impact_label_boundaries_including_low():
+    """_impact_label covers every band, including the sub-0.2 'low' branch."""
+    assert agent_a2a._impact_label(0.6) == "critical"
+    assert agent_a2a._impact_label(0.5) == "high"
+    assert agent_a2a._impact_label(0.3) == "medium"
+    assert agent_a2a._impact_label(0.1) == "low"
+
+
+def test_default_impact_used_for_unknown_service_name():
+    """A service whose name is not in the impact table scores at _DEFAULT_IMPACT."""
+    host = {"id": "x", "services": [{"name": "totally-unknown-svc"}]}
+    assert agent_a2a._host_impact(host) == agent_a2a._DEFAULT_IMPACT
+
+
+def test_agent_card_name_and_description_overridable():
+    """agent_card threads through custom name/version/description overrides."""
+    card = agent_a2a.agent_card(
+        name="mapper-clone", version="9.9.9", description="custom desc"
+    )
+    assert card["name"] == "mapper-clone"
+    assert card["version"] == "9.9.9"
+    assert card["description"] == "custom desc"
+    # Skills re-use the (overridden) description string.
+    assert all(s["description"] == "custom desc" for s in card["skills"])
+
+
+# --------------------------------------------------------------------------- #
+# build_app() / serve() serving wrappers behind guarded strands/a2a imports.  #
+# We inject stub strands/fastapi/uvicorn modules into sys.modules (mirroring   #
+# the build_agent stubbing) so the lazy imports resolve and the wiring runs    #
+# with no real deps, no socket bind, no network.                              #
+# --------------------------------------------------------------------------- #
+def _stub_a2a_serving(monkeypatch, *, with_to_fastapi=True):
+    """Inject stub fastapi + strands.multiagent.a2a modules and return the
+    recorder dict the stubs write into."""
+    rec: dict = {}
+
+    class _FastAPI:
+        def __init__(self):
+            self.routes = {}
+
+        def get(self, route):
+            def _decorator(fn):
+                self.routes[route] = fn
+                return fn
+
+            return _decorator
+
+    fastapi_mod = types.ModuleType("fastapi")
+    fastapi_mod.FastAPI = _FastAPI
+
+    class _A2AServer:
+        def __init__(self, *, agent, host, port):
+            rec.update(agent=agent, host=host, port=port)
+
+        if with_to_fastapi:
+            def to_fastapi_app(self):
+                app = _FastAPI()
+                rec["from_a2a"] = True
+                return app
+
+    strands_mod = types.ModuleType("strands")
+    multiagent_mod = types.ModuleType("strands.multiagent")
+    a2a_mod = types.ModuleType("strands.multiagent.a2a")
+    a2a_mod.A2AServer = _A2AServer
+
+    monkeypatch.setitem(sys.modules, "fastapi", fastapi_mod)
+    monkeypatch.setitem(sys.modules, "strands", strands_mod)
+    monkeypatch.setitem(sys.modules, "strands.multiagent", multiagent_mod)
+    monkeypatch.setitem(sys.modules, "strands.multiagent.a2a", a2a_mod)
+    return rec, _FastAPI
+
+
+def test_build_app_wires_a2a_and_ping(monkeypatch):
+    """build_app wraps the given agent in an A2AServer, uses its FastAPI app,
+    and mounts a dependency-free /ping health endpoint."""
+    rec, _ = _stub_a2a_serving(monkeypatch, with_to_fastapi=True)
+    sentinel_agent = object()
+
+    app = agent_a2a.build_app(host="127.0.0.1", port=1234, agent=sentinel_agent)
+
+    # A2AServer got the exact agent/host/port and its to_fastapi_app was used.
+    assert rec["agent"] is sentinel_agent
+    assert rec["host"] == "127.0.0.1"
+    assert rec["port"] == 1234
+    assert rec.get("from_a2a") is True
+    # /ping is wired and returns the liveness envelope naming this specialist.
+    assert "/ping" in app.routes
+    assert app.routes["/ping"]() == {"status": "healthy", "agent": "attack-mapper"}
+
+
+def test_build_app_falls_back_to_fastapi_without_to_fastapi_app(monkeypatch):
+    """When A2AServer has no to_fastapi_app, build_app falls back to a bare
+    FastAPI() app and still mounts /ping."""
+    rec, _FastAPI = _stub_a2a_serving(monkeypatch, with_to_fastapi=False)
+    app = agent_a2a.build_app(host="0.0.0.0", port=9000, agent=object())
+    assert isinstance(app, _FastAPI)
+    assert "from_a2a" not in rec  # the A2A app path was NOT taken
+    assert app.routes["/ping"]() == {"status": "healthy", "agent": "attack-mapper"}
+
+
+def test_build_app_builds_agent_when_none_given(monkeypatch):
+    """When no agent is passed, build_app calls build_agent() to make one."""
+    rec, _ = _stub_a2a_serving(monkeypatch, with_to_fastapi=True)
+    made = object()
+    monkeypatch.setattr(agent_a2a, "build_agent", lambda: made)
+    agent_a2a.build_app(host="127.0.0.1", port=1)
+    assert rec["agent"] is made
+
+
+def test_serve_runs_uvicorn_with_built_app(monkeypatch):
+    """serve() builds the app and hands it to uvicorn.run with host/port — no
+    real socket bind (uvicorn is stubbed)."""
+    calls = {}
+    uvicorn_mod = types.ModuleType("uvicorn")
+
+    def _run(app, *, host, port):
+        calls.update(app=app, host=host, port=port)
+
+    uvicorn_mod.run = _run
+    monkeypatch.setitem(sys.modules, "uvicorn", uvicorn_mod)
+
+    fake_app = object()
+    captured = {}
+
+    def _fake_build_app(*, host, port):
+        captured.update(host=host, port=port)
+        return fake_app
+
+    monkeypatch.setattr(agent_a2a, "build_app", _fake_build_app)
+
+    agent_a2a.serve(host="127.0.0.1", port=8765)
+
+    assert captured == {"host": "127.0.0.1", "port": 8765}
+    assert calls["app"] is fake_app
+    assert calls["host"] == "127.0.0.1"
+    assert calls["port"] == 8765
+
+
 # --------------------------------------------------------------------------- #
 # asset_lookup tool: deterministic offline surface + input validation         #
 # --------------------------------------------------------------------------- #

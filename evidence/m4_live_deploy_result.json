@@ -1,0 +1,31 @@
+{
+  "scenario": "m4_live_deploy",
+  "verdict": {
+    "guardrail": {
+      "deployed": true,
+      "action": "GUARDRAIL_INTERVENED",
+      "masked": [
+        "{aws-access-key-id}",
+        "{generic-api-token}"
+      ]
+    },
+    "identity": {
+      "deployed": true,
+      "user_pool_id": "us-west-2_<REDACTED>",
+      "oidc_discovery_reachable": true,
+      "signing_alg": "RS256",
+      "token_endpoint_present": true,
+      "authorizer_contract_ok": true
+    },
+    "observability": {
+      "deployed": true,
+      "dashboard": "sentinel-observability",
+      "metric_namespace": "SentinelHarness",
+      "budget": "sentinel-monthly-cost",
+      "log_group": "/sentinel/sentinel/scenarios"
+    },
+    "vpc_endpoints_cost_gated_off": true,
+    "closed": true,
+    "note": "M4 L3 foundation, LIVE on real AWS (non-prod dev acct, us-west-2). Three free-tier stacks deployed via the M4 CDK and left running for future validation: (1) Guardrail really intervened + masked a fake AWS key + sk- token in a tool response; (2) Cognito identity (user pool + resource server + domain + human/M2M clients) with a reachable OIDC discovery endpoint (RS256, token_endpoint) that gateway.cognito_jwt_authorizer() wires into a CUSTOM_JWT gateway; (3) CloudWatch dashboard + TokensPerScenario metric + monthly Budgets alarm. The private-VPC PrivateLink interface endpoints (the only standing ~$30/mo cost) stay cost-gated OFF by default (-c sentinel:deployVpcEndpoints=true opts in). IDs/account scrubbed."
+  }
+}

@@ -21,6 +21,11 @@ import { App, Environment, Tags } from "aws-cdk-lib";
 import { GatewayStack, GatewayAuthorizerType } from "../lib/gateway-stack";
 import { RegistryStack } from "../lib/registry-stack";
 import { MemoryStack } from "../lib/memory-stack";
+import { NetworkStack } from "../lib/network-stack";
+import { IdentityStack } from "../lib/identity-stack";
+import { GuardrailStack } from "../lib/guardrail-stack";
+import { ObservabilityStack } from "../lib/observability-stack";
+import { HarnessStack } from "../lib/harness-stack";
 
 const app = new App();
 
@@ -84,9 +89,51 @@ const memory = new MemoryStack(app, `${appName}-memory`, {
   description: "Sentinel AgentCore Memory (semantic + summarization, per-tenant namespaces).",
 });
 
+// --- M4 (L3 foundation): identity / network / guardrail / observability / harness. ---
+// The VPC interface endpoints are the only standing monthly cost, so they are OFF by
+// default (context `sentinel:deployVpcEndpoints=true` opts in — see network-stack.ts).
+const deployVpcEndpointsRaw = ctx<unknown>("sentinel:deployVpcEndpoints", false);
+const deployVpcEndpoints =
+  typeof deployVpcEndpointsRaw === "boolean" ? deployVpcEndpointsRaw : String(deployVpcEndpointsRaw) === "true";
+
+const network = new NetworkStack(app, `${appName}-network`, {
+  env,
+  appName,
+  deployVpcEndpoints,
+  description: "Sentinel private VPC (isolated subnet, default-deny egress via PrivateLink; no NAT).",
+});
+
+const identity = new IdentityStack(app, `${appName}-identity`, {
+  env,
+  appName,
+  cognitoDomainPrefix: ctx<string | undefined>("sentinel:cognitoDomainPrefix", undefined),
+  description: "Sentinel Cognito identity (human JWT + M2M client_credentials) for the Gateway CUSTOM_JWT authorizer.",
+});
+
+const guardrail = new GuardrailStack(app, `${appName}-guardrail`, {
+  env,
+  appName,
+  description: "Sentinel Bedrock Guardrail — masks secrets/PII in tool responses (injection/exfil defense).",
+});
+
+const observability = new ObservabilityStack(app, `${appName}-observability`, {
+  env,
+  appName,
+  budgetEmail: ctx<string | undefined>("sentinel:budgetEmail", undefined),
+  budgetAmountUsd: Number(ctx<unknown>("sentinel:budgetAmountUsd", 50)) || 50,
+  description: "Sentinel observability — CloudWatch dashboard + TokensPerScenario metric + monthly budget alarm.",
+});
+
+const harness = new HarnessStack(app, `${appName}-harness`, {
+  env,
+  appName,
+  executionRoleArn: ctx<string | undefined>("sentinel:harnessExecutionRoleArn", undefined),
+  description: "Sentinel demo Harness via the native AWS::BedrockAgentCore::Harness CFN type (no custom resource).",
+});
+
 // Tag everything so cost/observability dashboards and the non-prod guardrail can
 // filter by project + environment. `environment` defaults to non-prod on purpose.
-for (const s of [gateway, registry, memory]) {
+for (const s of [gateway, registry, memory, network, identity, guardrail, observability, harness]) {
   Tags.of(s).add("project", "sentinel-harness");
   Tags.of(s).add("layer", "layer-3-foundation");
   Tags.of(s).add("environment", String(ctx("sentinel:environment", "non-prod")));

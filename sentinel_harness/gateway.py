@@ -115,6 +115,49 @@ def create_gateway(name, *, authorizer_type="AWS_IAM", role_arn=None,
     return _control.create_gateway(**args)
 
 
+def cognito_jwt_authorizer(discovery_url, *, allowed_audience=None,
+                           allowed_clients=None) -> dict:
+    """Build the ``{"customJWTAuthorizer": {...}}`` block for a ``CUSTOM_JWT`` gateway.
+
+    Slots straight into ``create_gateway(authorizer_type="CUSTOM_JWT",
+    authorizer_config=cognito_jwt_authorizer(...))``. The service's
+    ``customJWTAuthorizer`` shape is ``discoveryUrl`` plus EXACTLY ONE of
+    ``allowedAudience`` / ``allowedClients``:
+
+    - ``allowed_audience`` — for **human** callers presenting a Cognito **ID token**.
+      The ID token carries an ``aud`` claim (the app client id), so the gateway
+      validates against ``allowedAudience``.
+    - ``allowed_clients`` — for **machine** callers using the
+      ``client_credentials`` (M2M) flow. Those **access tokens have NO ``aud``
+      claim** (verified gotcha), so the gateway must validate the ``client_id``
+      claim via ``allowedClients`` instead — ``allowedAudience`` would never match.
+
+    ``discovery_url`` is the OIDC discovery document, e.g.
+    ``https://cognito-idp.<region>.amazonaws.com/<poolId>/.well-known/openid-configuration``.
+    A single string is accepted for either audience/clients arg and wrapped into a
+    one-element list (the service expects a list). Exactly one of the two must be
+    given; supplying neither (or both) raises so the misconfig is caught locally
+    rather than as a server-side ValidationException."""
+    if not discovery_url:
+        raise ValueError("cognito_jwt_authorizer requires a discovery_url (OIDC .well-known URL).")
+    if (allowed_audience is None) == (allowed_clients is None):
+        raise ValueError(
+            "cognito_jwt_authorizer: give exactly one of allowed_audience (human ID "
+            "tokens carry an aud claim) OR allowed_clients (M2M access tokens have NO "
+            "aud claim, so validate client_id instead) — not neither, not both."
+        )
+    inner: dict = {"discoveryUrl": discovery_url}
+    if allowed_audience is not None:
+        if isinstance(allowed_audience, str):
+            allowed_audience = [allowed_audience]
+        inner["allowedAudience"] = list(allowed_audience)
+    else:
+        if isinstance(allowed_clients, str):
+            allowed_clients = [allowed_clients]
+        inner["allowedClients"] = list(allowed_clients)
+    return {"customJWTAuthorizer": inner}
+
+
 def wait_gateway_ready(gateway_id: str, timeout: int = 300) -> dict:
     """Poll ``GetGateway`` until the gateway reaches ``READY`` (provisioning is
     fire-and-forget, so we must poll). Raises on a terminal-failure status or when

@@ -18,6 +18,16 @@ node_modules/
 cdk.out/
 *.js.map
 
+# Terraform (iac-terraform/) local state, provider binaries, plans, and any
+# *.tfvars that may carry account-specific values — NEVER commit (state can hold secrets).
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.auto.tfvars
+crash.log
+
 # Private, customer-specific working notes — NEVER commit (contain PII / meeting
 # minutes / internal URLs). The sanitized, generic derivative is docs/ROADMAP.md.
 # Patterns are intentionally NOT literal filenames, so no confidential token
@@ -30,3 +40,6 @@ docs/*.private.md
 # coverage artifacts
 .coverage
 htmlcov/
+
+# CDK context cache (caches real account/AZ lookups — never commit)
+cdk.context.json

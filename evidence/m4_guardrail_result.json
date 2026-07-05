@@ -1,0 +1,17 @@
+{
+  "scenario": "m4_guardrail_masking",
+  "verdict": {
+    "guardrail_deployed_live": true,
+    "guardrail_id": "ratqvhb0xm40",
+    "region": "us-west-2",
+    "action": "GUARDRAIL_INTERVENED",
+    "aws_key_masked_to": "{aws-access-key-id}",
+    "api_token_masked_to": "{generic-api-token}",
+    "regex_matches": [
+      "aws-access-key-id",
+      "generic-api-token"
+    ],
+    "closed": true,
+    "note": "M4 defense-in-depth, LIVE on real AWS: a Bedrock Guardrail deployed via the M4 CDK guardrail-stack really intervened (GUARDRAIL_INTERVENED) on a tool-response containing a fake AWS access key and an sk- API token, masking both to {aws-access-key-id}/{generic-api-token} via custom regex policies. This is the 'every tool response passes a Guardrail' control proven end-to-end, not synth-only. Account id scrubbed."
+  }
+}

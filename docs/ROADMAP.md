@@ -190,7 +190,15 @@ Suggest one feature branch per milestone.
 **Acceptance:** offline green + two live scenarios reproduced + API availability recorded.
 **Traps:** `runtimeSessionId ≥ 33`; `read_timeout=300` already set in core; call `stop_runtime_session` when done.
 
-### M1 — [P0] Meta-agent self-iteration engine ("agent builds agents")
+### M1 — [P0] Meta-agent self-iteration engine ("agent builds agents") — ✅ DELIVERED, live-validated
+**Status:** shipped and proven on real GA AgentCore. `scenarios/scenario_agent_factory_loop.py`
+runs end-to-end (`evidence/agent_factory_loop_result.json`, `closed: true`): a natural-language
+request → the meta-agent (Opus) emits a harness spec → `harness_ops` really builds a new harness
+→ it reaches READY and answers a real invoke → teardown. `core.update_harness`, `tools/harness_ops`,
+`intake/adapter.py`, and `harnesses/{meta-agent,agent-ops}` all landed with offline tests.
+Scoped: delegation is in-process (wiring `harness_ops` as a live Gateway MCP target so agent-ops
+calls it autonomously is M4).
+
 **Goal:** three orchestration harnesses so "natural-language request → auto build/modify/test a harness" works (the eval loop is M2).
 
 **New files:**
@@ -227,7 +235,18 @@ meta emits a valid spec → ops `dry_run` passes → real build → `wait_ready=
 **Traps:** create-vs-update memory shapes differ; **agent update = full replacement**;
 harness name rule `[a-zA-Z][a-zA-Z0-9_]{0,39}` (no hyphens — `factory._NAME_RE` guards it).
 
-### M2 — [P0] Evaluation-driven self-improvement loop
+### M2 — [P0] Evaluation-driven self-improvement loop — ✅ DELIVERED (mechanisms live-validated)
+**Status:** shipped with each mechanism proven on real GA AgentCore (dev account, cleaned up):
+a deliberately weak agent was scored **0.0** by the independent LLM-judge harness
+(`run_evaluation.score_answer`), a full-replacement `update_harness` produced **version 2**, and
+**`CreateHarnessEndpoint`** promoted a harness to a named production endpoint
+(`evidence/endpoint_promote_result.json`). Ships `tools/run_evaluation`, `harnesses/{llm-judge,
+self-improving}`, `eval/` datasets + criteria, the `request_promotion_approval` HITL gate, and
+endpoint-aware teardown, with 55 offline tests. **Honest limit:** a full green *single* run needs
+fresh account InvokeHarness quota — a heavy test day exhausted it and the second re-score hit HTTP
+403 (`second_eval_throttled`), an environment limit, not a defect. Scoring uses a self-built judge
+(the managed Evaluate API needs OTEL/CloudWatch telemetry = M4).
+
 **Goal:** score M1's agents, retry-with-reasoning when below bar, promote (create endpoint) only when at/above bar. The soul of self-iteration.
 
 **New files:**

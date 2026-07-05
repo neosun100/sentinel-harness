@@ -12,7 +12,7 @@
   <img alt="license" src="https://img.shields.io/badge/license-MIT--0-30d158"/>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-2997ff"/>
   <img alt="bedrock-agentcore" src="https://img.shields.io/badge/Amazon%20Bedrock-AgentCore%20Harness-ff9900"/>
-  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-591%20passing-1D8102"/>
+  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-740%20passing-1D8102"/>
   <img alt="status" src="https://img.shields.io/badge/live--validated-CVE%20%C2%B7%20multi--harness%20%C2%B7%20HITL%20%C2%B7%20Play%20Mode-8b5cf6"/>
 </p>
 
@@ -28,7 +28,7 @@ A security team usually already has models, internal MCP servers, and a pile of 
 
 Everything here is **generic SecOps content** built and tested against a **non-production** account — no proprietary data, no real vulnerable assets, no real malware. It reverse-engineers a common three-layer SecOps agent architecture into AgentCore primitives, borrowing verified patterns from four AWS samples.
 
-> **What's real vs. aspirational — read this first.** Layer 1 ships **live-validated scenarios** (including a real Gateway create→READY→delete on the GA API) and a library-grade core. Layer 2 Play Mode is live-validated, and BAS detection-replay is real (a deterministic Sigma matcher finds detection blind spots offline); sample detonation stays an import-safe SIMULATED skeleton (no real malware/VM/network). Layer 3 ships a built+tested tool/skill registry, sandbox hooks, and Agent Factory, plus a synth-validated CDK stack and an import-safe A2A specialist skeleton (container deps/Docker not built). The [status matrix](#-status-validated--designed--missing) is precise about what's proven, built, designed, or skeleton — 🟡 rows are honest about their limits. This honesty is deliberate — see the self-audit in [`docs/FIDELITY-REPORT.md`](docs/FIDELITY-REPORT.md).
+> **What's real vs. aspirational — read this first.** Layer 1 ships **live-validated scenarios** (including a real Gateway create→READY→delete on the GA API) and a library-grade core. Layer 2 Play Mode is live-validated, and BAS detection-replay is real (a deterministic Sigma matcher finds detection blind spots offline); sample detonation stays an import-safe SIMULATED skeleton (no real malware/VM/network). Layer 3 ships a built+tested tool/skill registry, sandbox hooks, and Agent Factory; a dual-track IaC foundation (CDK + a `terraform validate`-clean Terraform mirror) where the Guardrail, Cognito JWT identity, and CloudWatch/Budgets observability stacks are **live-deployed and validated on a real dev account** (a Guardrail really masked a fake AWS key; the private-VPC PrivateLink endpoints stay cost-gated off); plus an import-safe A2A specialist skeleton (container deps/Docker not built). The [status matrix](#-status-validated--designed--missing) is precise about what's proven, built, designed, or skeleton — 🟡 rows are honest about their limits. This honesty is deliberate — see the self-audit in [`docs/FIDELITY-REPORT.md`](docs/FIDELITY-REPORT.md).
 
 ## 🏛 Architecture
 
@@ -58,12 +58,17 @@ Honest build status per capability — mirrors the self-audit.
 | **L3 Foundation** | Agent Factory (fleet provision, dry-run, cross-env tag-guard) | 🟢 **built + tested** | `sentinel_harness/factory.py` |
 | **L3 Foundation** | LiteLLM A2A specialist Runtime (container skeleton) | 🟡 **skeleton** (import-safe, agent-card tested; deps/Docker not built) | `specialists/cve-intel/` |
 | **L3 Foundation** | Gateway/Registry/Memory CDK stack | 🟡 **synth-validated** (Gateway/Memory CFN types registered; Registry type not yet in CFN) | `iac-cdk/` |
+| **L3 Foundation** | Guardrail — masks secrets/PII in tool responses | 🟢 **live-deployed + validated** (`GUARDRAIL_INTERVENED` masked a fake AWS key + token) | `iac-cdk/lib/guardrail-stack.ts`, `evidence/m4_guardrail_result.json` |
+| **L3 Foundation** | Cognito identity for Gateway CUSTOM_JWT (human + M2M) | 🟢 **live-deployed** (OIDC discovery reachable, RS256; authorizer contract verified) | `iac-cdk/lib/identity-stack.ts`, `gateway.cognito_jwt_authorizer` |
+| **L3 Foundation** | Observability — CW dashboard + TokensPerScenario + Budgets | 🟢 **live-deployed** | `iac-cdk/lib/observability-stack.ts` |
+| **L3 Foundation** | Private VPC + default-deny egress (PrivateLink, no NAT) | 🟢 **built + synth-validated** (endpoints cost-gated off) | `iac-cdk/lib/network-stack.ts` |
+| **L3 Foundation** | Deployable Terraform mirror (identity/vpc/guardrail/obs/harness) | 🟢 **built** (`terraform validate` clean) | `iac-terraform/` |
 | **Config** | YAML→harness loader (`sentinel create <harness.yaml>`) | 🟢 **built + tested** | `sentinel_harness/loader.py` |
 | **Core** | Harness lifecycle library + builders (create/invoke/HITL-resume/tools/memory) | 🟢 **library-grade, tested** | `sentinel_harness/core.py` |
 | **Tools** | `sigma_yara_lint` (real, deterministic, LLM-free) | 🟢 **functional + unit-tested** | `tools/sigma_yara_lint/`, `tests/test_sigma_yara_lint.py` |
 | **Tools** | `nvd_lookup` / `epss_kev` / `attack_lookup` / `web_search` | 🟡 **reference stubs** (offline-safe, contract-tested) | `tools/`, `tests/test_tool_handlers.py` |
 
-🟢 built & validated · 🟡 built, partial · 🟠 designed with loadable config · ⚪ design narrative only. **591 offline tests pass** (+3 skipped when optional A2A deps absent).
+🟢 built & validated · 🟡 built, partial · 🟠 designed with loadable config · ⚪ design narrative only. **740 offline tests pass** (+4 skipped when optional deps absent).
 
 ## 🚀 Quickstart
 
@@ -72,7 +77,7 @@ git clone https://github.com/neosun100/sentinel-harness && cd sentinel-harness
 pip install -e .          # Python 3.10+ ; installs the `sentinel` CLI
 
 # offline tests need no AWS
-SENTINEL_EXECUTION_ROLE_ARN=arn:aws:iam::000000000000:role/test pytest tests/ -q   # 591 passing
+SENTINEL_EXECUTION_ROLE_ARN=arn:aws:iam::000000000000:role/test pytest tests/ -q   # 740 passing
 
 # configure for live runs (12-factor — nothing hardcoded)
 export AWS_PROFILE=<your-non-prod-profile>          # never production
@@ -141,9 +146,10 @@ sentinel-harness/
 ├── harnesses/            declarative configs (loader-consumed)  🟢
 ├── specialists/          A2A LiteLLM specialist container       🟡 skeleton
 ├── longrunning/          BAS long-running Runtime tier          🟡 skeleton
-├── iac-cdk/              Gateway/Registry/Memory CDK stack      🟡 synth-validated
+├── iac-cdk/              L3 CDK stacks (8; guardrail/identity/obs live) 🟢
+├── iac-terraform/        deployable Terraform mirror (validate-clean)  🟢
 ├── docs/                 ARCHITECTURE · BLUEPRINT · SETUP · HARNESSES · FIDELITY-REPORT
-├── tests/                offline unit + config tests (591)      🟢
+├── tests/                offline unit + config tests (740)      🟢
 └── .github/workflows/    CI incl. a customer-name / secret gate
 ```
 

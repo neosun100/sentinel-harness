@@ -309,7 +309,24 @@ tests/test_detonation.py / test_attack_mapper.py
 replay vs. Sigma rules → "undetected techniques" list; detonation negative test:
 path-traversal / disallowed command blocked by `sandbox_hooks`.
 
-### M4 — L3 foundation: identity / gateway / egress / observability
+### M4 — L3 foundation: identity / gateway / egress / observability — ✅ DELIVERED (3 stacks live-deployed + validated)
+**Status:** shipped as dual-track IaC (CDK main + Terraform mirror), authored on verified recon
+facts and partially deployed live on the dev account (us-west-2), free-tier stacks left running:
+- **Guardrail** (`iac-cdk/lib/guardrail-stack.ts`): deployed; `ApplyGuardrail` really intervened
+  (`GUARDRAIL_INTERVENED`) masking a fake AWS key → `{aws-access-key-id}` and an sk- token →
+  `{generic-api-token}` (`evidence/m4_guardrail_result.json`).
+- **Identity** (`iac-cdk/lib/identity-stack.ts`): Cognito user pool + resource server + domain +
+  human/M2M clients deployed; OIDC discovery endpoint reachable (RS256, token_endpoint), and
+  `gateway.cognito_jwt_authorizer()` wires it into a CUSTOM_JWT gateway (human aud vs M2M allowedClients).
+- **Observability** (`iac-cdk/lib/observability-stack.ts`): CloudWatch dashboard + `TokensPerScenario`
+  metric + log group + monthly Budgets alarm deployed.
+- **Network** (`iac-cdk/lib/network-stack.ts`): private VPC, isolated subnet, no NAT/IGW; the
+  PrivateLink interface endpoints (the only standing ~$30/mo cost) are cost-gated OFF by default
+  (`-c sentinel:deployVpcEndpoints=true` opts in). Synth-validated both ways.
+- **Harness** (`iac-cdk/lib/harness-stack.ts`): the NATIVE `AWS::BedrockAgentCore::Harness` CFN type
+  (recon corrected the old "needs a custom resource" assumption). Terraform mirror in `iac-terraform/`
+  (`terraform validate` clean). Evidence: `evidence/m4_live_deploy_result.json`.
+
 **Goal:** enterprise MCP gateway (JWT + API-key auth + Guardrail injection defense + audit),
 private VPC + egress allowlist, a unified LiteLLM inference gateway, CloudWatch observability + cost.
 ```

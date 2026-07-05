@@ -14,20 +14,26 @@ bedrock-agentcore) installed, so:
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import os
 import sys
 import types
 
 import pytest
 
-# The specialist lives outside the package tree (specialists/cve-intel/), so put
-# that dir on sys.path and import the module by name. No AWS, no network.
+# Every specialist ships a module literally named ``agent_a2a``. Importing it by the
+# bare name (import_module("agent_a2a") + sys.path insert) registers it in sys.modules
+# under that shared name, which collides with sibling specialists' same-named modules
+# when the whole suite runs — whichever test imports first wins the cache. Load ours
+# from an explicit path under a UNIQUE module name so this file can never poison (or be
+# poisoned by) test_attack_mapper / test_threat_hunt regardless of collection order.
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SPECIALIST_DIR = os.path.join(REPO_ROOT, "specialists", "cve-intel")
-if SPECIALIST_DIR not in sys.path:
-    sys.path.insert(0, SPECIALIST_DIR)
-
-agent_a2a = importlib.import_module("agent_a2a")
+_MODULE_PATH = os.path.join(REPO_ROOT, "specialists", "cve-intel", "agent_a2a.py")
+_UNIQUE_NAME = "cve_intel_agent_a2a"
+_spec = importlib.util.spec_from_file_location(_UNIQUE_NAME, _MODULE_PATH)
+agent_a2a = importlib.util.module_from_spec(_spec)
+sys.modules[_UNIQUE_NAME] = agent_a2a
+_spec.loader.exec_module(agent_a2a)
 
 
 # --------------------------------------------------------------------------- #
@@ -96,7 +102,7 @@ def test_no_hardcoded_secrets_or_account_ids():
     """House rule: nothing customer- or account-specific baked in."""
     import re
 
-    src = open(os.path.join(SPECIALIST_DIR, "agent_a2a.py"), encoding="utf-8").read()
+    src = open(_MODULE_PATH, encoding="utf-8").read()
     # No 12-digit AWS account id literal (allow the all-zeros placeholder only).
     for m in re.findall(r"\b\d{12}\b", src):
         assert m == "000000000000", f"hardcoded account id: {m}"

@@ -66,3 +66,22 @@ tools:
       sentinel_harness.core.invoke and parses a structured JSON verdict
       (score/pass/reasons/suggestions); no other LLM reasoning. Lets the
       self-improving harness gate promotions on a caller-defined pass bar.
+
+  - name: sigma_match
+    owner: detection-engineering
+    status: approved
+    description: >-
+      Deterministic, LLM-free Sigma detection MATCHER (not a linter): evaluates a
+      Sigma rule against a log event and returns whether it fires, plus which
+      selections matched. Supports contains/startswith/endswith/re/all modifiers
+      and the 1-of/all-of/wildcard condition grammar via a safe boolean evaluator
+      (no eval). Powers the M3 BAS detection-replay blind-spot engine.
+
+  - name: asset_lookup
+    owner: platform
+    status: approved
+    description: >-
+      Exposure/asset-surface lookup: given an asset or subnet query, returns a
+      deterministic offline surface (hosts, exposed services/ports, known-vuln
+      flags, trust edges) for M3 attack-path reasoning. Offline stub by default;
+      a *_LIVE env opts into a real asset backend later (M5).

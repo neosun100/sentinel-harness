@@ -17,3 +17,8 @@ uv.lock
 node_modules/
 cdk.out/
 *.js.map
+
+# Private, customer-specific working notes — NEVER commit (contain customer PII /
+# meeting minutes / internal URLs). The sanitized, generic derivative is docs/ROADMAP.md.
+docs/REDACTED-PRIVATE-NOTE.md
+docs/DEVELOPMENT-GUIDE.md

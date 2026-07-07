@@ -53,8 +53,41 @@ from typing import Any, Dict, List, Optional
 from sentinel_harness.sandbox_hooks import validate_command, validate_path
 
 # ------------------------------------------------------------------ VM states
-ACQUIRED = "acquired"      # microVM provisioned for a session, ready for actions
-DESTROYED = "destroyed"    # torn down after use; the handle is now unusable
+# The one-shot microVM lifecycle is an EXPLICIT state machine (still SIMULATED —
+# no real VM ever exists). A handle walks a single legal path:
+#
+#     QUEUED -> PROVISIONING -> ACQUIRED -> DETONATING -> ANALYZING -> DESTROYED
+#
+# ``ACQUIRED`` ("ready") and ``DESTROYED`` keep their historical names/values so
+# existing callers and tests are untouched; the intermediate states make each
+# lifecycle phase observable in the evidence trail (``VMHandle.state_history``).
+QUEUED = "queued"              # request accepted, nothing provisioned yet
+PROVISIONING = "provisioning"  # (simulated) isolated microVM being booted
+ACQUIRED = "acquired"          # microVM provisioned for a session, READY for actions
+DETONATING = "detonating"      # controlled (simulated) detonation steps under way
+ANALYZING = "analyzing"        # collecting (simulated) behavioral artifacts
+DESTROYED = "destroyed"        # torn down after use; the handle is now unusable
+
+# States in which the microVM exists and an action may (simulated-)run. QUEUED /
+# PROVISIONING precede readiness; DESTROYED is terminal. ``is_live`` keys off this
+# set — ``ACQUIRED`` stays live so the historical acquire->run_action->destroy
+# path is byte-for-byte unchanged.
+LIVE_STATES = frozenset({ACQUIRED, DETONATING, ANALYZING})
+
+# The SINGLE allowed-transitions table — the one source of truth for lifecycle
+# legality (do NOT re-derive it anywhere else). :meth:`OneShotMicroVM.transition`
+# refuses any jump not listed here, so illegal skips (e.g. QUEUED -> ACQUIRED,
+# ACQUIRED -> ANALYZING) and any move out of the terminal ``DESTROYED`` state fail
+# loudly with :class:`VMError`. ``DESTROYED`` is reachable from EVERY non-terminal
+# state so destroy-after-use can always tear the VM down, whatever phase it is in.
+ALLOWED_TRANSITIONS: Dict[str, frozenset] = {
+    QUEUED: frozenset({PROVISIONING, DESTROYED}),
+    PROVISIONING: frozenset({ACQUIRED, DESTROYED}),
+    ACQUIRED: frozenset({DETONATING, DESTROYED}),
+    DETONATING: frozenset({ANALYZING, DESTROYED}),
+    ANALYZING: frozenset({DESTROYED}),
+    DESTROYED: frozenset(),  # terminal: no transition out of a destroyed VM
+}
 
 # Action kinds a detonation step may request inside the (simulated) microVM.
 # ``run`` carries a command string (validated as a command); ``read`` /
@@ -122,11 +155,15 @@ class Sample:
 
 @dataclass
 class VMHandle:
-    """A handle to one acquired (simulated) microVM.
+    """A handle to one (simulated) microVM as it walks the lifecycle.
 
     Opaque to callers except for its ``session_id`` / ``state``. It carries no
     live connection — in the simulated path there is nothing to connect to; in
     production this would wrap the microVM's id / control channel.
+
+    ``state_history`` is the ordered list of states this handle has occupied
+    (starting state first, current state last). It is the EVIDENCE TRAIL for the
+    lifecycle: it proves the VM walked the legal path and was destroyed after use.
     """
 
     session_id: str
@@ -134,10 +171,23 @@ class VMHandle:
     state: str = ACQUIRED
     sample: Optional[Sample] = None
     action_log: List[Dict[str, Any]] = field(default_factory=list)
+    state_history: List[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # Seed the history with the state the handle is born in so the trail is
+        # never empty (and so callers that build a handle directly still get a
+        # coherent history). Subsequent moves go through OneShotMicroVM.transition.
+        if not self.state_history:
+            self.state_history = [self.state]
 
     @property
     def is_live(self) -> bool:
-        return self.state == ACQUIRED
+        """True while the microVM exists and can (simulated-)run an action.
+
+        Keys off :data:`LIVE_STATES` (ACQUIRED / DETONATING / ANALYZING). QUEUED /
+        PROVISIONING are pre-ready and DESTROYED is terminal, so none of them are
+        live. ``ACQUIRED`` remains live, preserving the historical contract."""
+        return self.state in LIVE_STATES
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -146,6 +196,7 @@ class VMHandle:
             "state": self.state,
             "sample": self.sample.as_dict() if self.sample else None,
             "actions": len(self.action_log),
+            "state_history": list(self.state_history),
         }
 
 
@@ -157,11 +208,16 @@ class OneShotMicroVM:
     deterministic and AWS-free in the simulated path.
 
     Invariants enforced here (the REAL, provable part):
+      * **explicit state machine**: the handle walks
+        ``QUEUED -> PROVISIONING -> ACQUIRED -> DETONATING -> ANALYZING ->
+        DESTROYED`` and :meth:`transition` REFUSES any illegal jump (raising
+        :class:`VMError`), using the single :data:`ALLOWED_TRANSITIONS` table.
       * **one-shot**: :meth:`acquire` refuses to acquire a second VM while one is
         still live (you must :meth:`destroy` first) — models "one microVM per
         session, no reuse".
       * **destroy-after-use**: any :meth:`run_action` on a destroyed handle raises
-        :class:`VMAlreadyDestroyedError`.
+        :class:`VMAlreadyDestroyedError`; :meth:`destroy` is reachable from any
+        live state and is idempotent.
       * **sandboxed**: every :meth:`run_action` is validated by the sandbox hooks;
         a traversal / disallowed command raises :class:`ActionRefused` and is
         never (simulated-)executed.
@@ -176,17 +232,50 @@ class OneShotMicroVM:
         self._sandbox_root = sandbox_root
         self._live: Optional[VMHandle] = None
 
+    # -- explicit state-machine transition ----------------------------------
+    def transition(self, handle: VMHandle, to_state: str) -> str:
+        """Move ``handle`` to ``to_state``, REFUSING any illegal jump (SIMULATED).
+
+        This is the one gate through which every lifecycle move must pass. It
+        consults the single :data:`ALLOWED_TRANSITIONS` table: if
+        ``handle.state -> to_state`` is not an allowed edge it raises
+        :class:`VMError` and the handle's state is left untouched (fail-closed —
+        an illegal jump is a no-op, never a silent slide). On success it appends
+        ``to_state`` to ``handle.state_history`` (the evidence trail) and returns
+        the new state.
+
+        No real VM changes phase — this only flips an in-memory string and records
+        it. In production each edge would drive a real microVM action (boot,
+        detonate step, collect artifacts, terminate)."""
+        if to_state not in ALLOWED_TRANSITIONS:
+            raise VMError(
+                f"unknown target state {to_state!r}; valid states are "
+                f"{sorted(ALLOWED_TRANSITIONS)}"
+            )
+        allowed = ALLOWED_TRANSITIONS.get(handle.state, frozenset())
+        if to_state not in allowed:
+            raise VMError(
+                f"illegal microVM transition {handle.state!r} -> {to_state!r}; "
+                f"allowed from {handle.state!r}: {sorted(allowed) or '(none, terminal)'}"
+            )
+        handle.state = to_state
+        handle.state_history.append(to_state)
+        return to_state
+
     # -- acquire -------------------------------------------------------------
     def acquire(self, session_id: str, *, sample: Optional[Sample] = None) -> VMHandle:
         """Acquire a fresh one-shot microVM for ``session_id`` (SIMULATED).
 
-        Returns a :class:`VMHandle` in the ``ACQUIRED`` state. Refuses to acquire
-        a second VM while one is still live — a caller must :meth:`destroy` the
-        current VM first, which is exactly the one-shot / no-reuse posture.
+        Walks the handle through the real provisioning path
+        ``QUEUED -> PROVISIONING -> ACQUIRED`` (each step via :meth:`transition`,
+        so the evidence trail records it) and returns it READY in the ``ACQUIRED``
+        state. Refuses to acquire a second VM while one is still live — a caller
+        must :meth:`destroy` the current VM first, which is exactly the one-shot /
+        no-reuse posture.
 
         No real VM is provisioned: this only mints an in-memory handle. In
-        production this is where the isolated microVM would be booted, keyed by the
-        ``runtimeSessionId``.
+        production these edges would queue the request, boot a genuinely isolated
+        one-shot microVM keyed by the ``runtimeSessionId``, then mark it ready.
         """
         if not session_id or not isinstance(session_id, str):
             raise ValueError("session_id must be a non-empty string")
@@ -198,9 +287,13 @@ class OneShotMicroVM:
         handle = VMHandle(
             session_id=session_id,
             vm_id=f"vm-{uuid.uuid4().hex[:16]}",
-            state=ACQUIRED,
+            state=QUEUED,
             sample=sample,
         )
+        # Walk the legal provisioning path so the evidence trail is complete and
+        # ``ACQUIRED`` is reached only through the state machine (never by a jump).
+        self.transition(handle, PROVISIONING)
+        self.transition(handle, ACQUIRED)
         self._live = handle
         return handle
 
@@ -278,13 +371,20 @@ class OneShotMicroVM:
     def destroy(self, handle: VMHandle) -> Dict[str, Any]:
         """Destroy the microVM after use (SIMULATED, idempotent).
 
-        Flips the handle to ``DESTROYED`` so any later :meth:`run_action` raises.
+        Transitions the handle to ``DESTROYED`` via the state machine so any later
+        :meth:`run_action` raises. ``DESTROYED`` is reachable from EVERY
+        non-terminal state (see :data:`ALLOWED_TRANSITIONS`), so destroy works from
+        any live phase — QUEUED, PROVISIONING, ACQUIRED, DETONATING, or ANALYZING.
         Idempotent: destroying an already-destroyed handle is a safe no-op (you
-        cannot leak a VM by double-destroy). In production this terminates the
-        microVM and deletes its disk so nothing — including the sample — persists.
+        cannot leak a VM by double-destroy, and the terminal state has no outgoing
+        edge to trip :meth:`transition`). In production this terminates the microVM
+        and deletes its disk so nothing — including the sample — persists.
         """
         already = handle.state == DESTROYED
-        handle.state = DESTROYED
+        if not already:
+            # Route through the state machine so the evidence trail records the
+            # teardown edge; legal from any non-terminal state by the table.
+            self.transition(handle, DESTROYED)
         if self._live is handle:
             self._live = None
         return {

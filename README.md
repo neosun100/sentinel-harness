@@ -12,7 +12,7 @@
   <img alt="license" src="https://img.shields.io/badge/license-MIT--0-30d158"/>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-2997ff"/>
   <img alt="bedrock-agentcore" src="https://img.shields.io/badge/Amazon%20Bedrock-AgentCore%20Harness-ff9900"/>
-  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-1155%20passing-1D8102"/>
+  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-1255%20passing-1D8102"/>
   <img alt="status" src="https://img.shields.io/badge/live--validated-CVE%20%C2%B7%20multi--harness%20%C2%B7%20HITL%20%C2%B7%20Play%20Mode-8b5cf6"/>
 </p>
 
@@ -28,7 +28,7 @@ A security team usually already has models, internal MCP servers, and a pile of 
 
 Everything here is **generic SecOps content** built and tested against a **non-production** account — no proprietary data, no real vulnerable assets, no real malware. It reverse-engineers a common three-layer SecOps agent architecture into AgentCore primitives, borrowing verified patterns from four AWS samples.
 
-> **What's real vs. aspirational — read this first.** Layer 1 ships **live-validated scenarios** (including a real Gateway create→READY→delete on the GA API) and a library-grade core. Layer 2 Play Mode is live-validated, and BAS detection-replay is real (a deterministic Sigma matcher finds detection blind spots offline); sample detonation stays an import-safe SIMULATED skeleton (no real malware/VM/network). Layer 3 ships a built+tested tool/skill registry, sandbox hooks, and Agent Factory; a dual-track IaC foundation (CDK + a `terraform validate`-clean Terraform mirror) where the Guardrail, Cognito JWT identity, and CloudWatch/Budgets observability stacks are **live-deployed and validated on a real dev account** (a Guardrail really masked a fake AWS key; the private-VPC PrivateLink endpoints stay cost-gated off); plus an import-safe A2A specialist skeleton (container deps/Docker not built). The [status matrix](#-status-validated--designed--missing) is precise about what's proven, built, designed, or skeleton — 🟡 rows are honest about their limits. This honesty is deliberate — see the self-audit in [`docs/FIDELITY-REPORT.md`](docs/FIDELITY-REPORT.md).
+> **What's real vs. aspirational — read this first.** Layer 1 ships **live-validated scenarios** (including a real Gateway create→READY→delete on the GA API) and a library-grade core. Layer 2 Play Mode is live-validated, BAS detection-replay is real (a deterministic Sigma matcher finds detection blind spots offline), and sample detonation is a built+tested full-lifecycle orchestrator that stays an **honest SIMULATED no-op** (no real malware/VM/network — sample-by-reference, sandbox-refused actions, HITL-gated, always destroyed after use). Layer 3 ships a built+tested tool/skill registry, sandbox hooks, and Agent Factory; a dual-track IaC foundation (CDK + a `terraform validate`-clean Terraform mirror) where the Guardrail, Cognito JWT identity, and CloudWatch/Budgets observability stacks are **live-deployed and validated on a real dev account** (a Guardrail really masked a fake AWS key; the private-VPC PrivateLink endpoints stay cost-gated off); plus an A2A specialist container that really `docker build`s (pinned deps, non-root) with a mocked-model zero-network contract test. The four core data-plane tools (`siem_query`/`asset_lookup`/`enrich_ioc`/`ops_query`) are backend-pluggable: offline mock by default, a real stdlib-HTTP client behind a `*_LIVE` env, so connecting a real backend is a config change, not a rebuild. The [status matrix](#-status-validated--designed--missing) is precise about what's proven, built, designed, or skeleton — 🟡 rows are honest about their limits. This honesty is deliberate — see the self-audit in [`docs/FIDELITY-REPORT.md`](docs/FIDELITY-REPORT.md).
 
 ## 🏛 Architecture
 
@@ -55,11 +55,11 @@ Honest build status per capability — mirrors the self-audit.
 | **L2 Simulation** | Adversary emulation, Play Mode (every step human-gated) + checkpoint/resume | 🟢 **live-validated** | `scenarios/scenario_play_mode.py`, `sentinel_harness/simulation.py` |
 | **L2 Simulation** | BAS detection-replay + blind-spot report (real Sigma matcher) | 🟢 **live-validated** (offline, deterministic; 4 techniques × 2 rules → 2 blind spots, coverage 0.5) | `tools/sigma_match/`, `longrunning/bas-runner/bas_cases.py`, `scenarios/scenario_bas_replay.py` |
 | **L2 Simulation** | Attack-path reasoning + threat-hunt planning | 🟢 **built + tested** (real `build_attack_paths` / `build_hunt_plan`; A2A serving = skeleton) | `specialists/attack-mapper/`, `specialists/threat-hunt/`, `tools/asset_lookup/` |
-| **L2 Simulation** | Sample detonation (one-shot microVM, long-running tier) | 🟡 **skeleton** (import-safe, SIMULATED no-ops; destroy-after-use + sandbox-gated + HITL) | `longrunning/detonation/`, `longrunning/bas-runner/` |
+| **L2 Simulation** | Sample detonation (one-shot microVM, long-running tier) | 🟢 **built + tested** (full `QUEUED→…→DESTROYED` lifecycle state machine + `detonate_sample` orchestrator + scenario; HONEST SIMULATED no-op — no real VM/malware/network; sample-by-reference, sandbox-refused bad action, HITL-gated, always-destroyed-after-use — `evidence/detonation_result.json`) | `longrunning/detonation/`, `scenarios/scenario_detonation.py` |
 | **L3 Foundation** | Tool/skill registry (dual-gate governance) + PreToolUse sandbox hook | 🟢 **built + tested** | `sentinel_harness/registry.py`, `sentinel_harness/sandbox_hooks.py` |
 | **L3 Foundation** | Agent Factory (fleet provision, dry-run, cross-env tag-guard) | 🟢 **built + tested** | `sentinel_harness/factory.py` |
-| **L3 Foundation** | LiteLLM A2A specialist Runtime (container skeleton) | 🟡 **skeleton** (import-safe, agent-card tested; deps/Docker not built) | `specialists/cve-intel/` |
-| **L3 Foundation** | Gateway/Registry/Memory CDK stack | 🟡 **synth-validated** (Gateway/Memory CFN types registered; Registry type not yet in CFN) | `iac-cdk/` |
+| **L3 Foundation** | LiteLLM A2A specialist Runtime (container) | 🟢 **built + tested** (real multi-stage `Dockerfile` with pinned deps + non-root `docker build` succeeds; in-process A2A server↔client contract test with a **mocked** model + socket-connect guard proves zero-network round-trip + clean errors on malformed input) | `specialists/cve-intel/` (`Dockerfile`, `compose.yaml`, `local_a2a.py`) |
+| **L3 Foundation** | Gateway/Registry/Memory CDK stack | 🟢 **synth-validated + deploy-ready** (Gateway/Memory CFN types registered; the not-yet-GA Registry type has a feature-flagged Lambda-backed custom-resource fallback — `-c sentinel:registryViaCustomResource=true` synths a deployable path, tsc + both-state synth clean) | `iac-cdk/lib/registry-stack.ts`, `iac-cdk/lib/registry-cr.ts` |
 | **L3 Foundation** | Guardrail — masks secrets/PII in tool responses | 🟢 **live-deployed + validated** (`GUARDRAIL_INTERVENED` masked a fake AWS key + token) | `iac-cdk/lib/guardrail-stack.ts`, `evidence/m4_guardrail_result.json` |
 | **L3 Foundation** | Cognito identity for Gateway CUSTOM_JWT (human + M2M) | 🟢 **live-deployed** (OIDC discovery reachable, RS256; authorizer contract verified) | `iac-cdk/lib/identity-stack.ts`, `gateway.cognito_jwt_authorizer` |
 | **L3 Foundation** | Observability — CW dashboard + TokensPerScenario + Budgets | 🟢 **live-deployed** | `iac-cdk/lib/observability-stack.ts` |
@@ -69,8 +69,9 @@ Honest build status per capability — mirrors the self-audit.
 | **Core** | Harness lifecycle library + builders (create/invoke/HITL-resume/tools/memory) | 🟢 **library-grade, tested** | `sentinel_harness/core.py` |
 | **Tools** | `sigma_yara_lint` (real, deterministic, LLM-free) | 🟢 **functional + unit-tested** | `tools/sigma_yara_lint/`, `tests/test_sigma_yara_lint.py` |
 | **Tools** | `nvd_lookup` / `epss_kev` / `attack_lookup` / `web_search` | 🟡 **reference stubs** (offline-safe, contract-tested) | `tools/`, `tests/test_tool_handlers.py` |
+| **Tools** | `siem_query` / `asset_lookup` / `enrich_ioc` / `ops_query` — backend-pluggable | 🟢 **built + tested** (offline mock default; `*_LIVE`=1 switches to a real stdlib-HTTP client — env-driven URL + bearer, timeouts, all failures→`upstream_error` with no silent fallback — proven end-to-end against an in-process 127.0.0.1 mock server, zero external network) | `tools/{siem_query,asset_lookup,enrich_ioc,ops_query}/`, `tests/test_*_live.py` |
 
-🟢 built & validated · 🟡 built, partial · 🟠 designed with loadable config · ⚪ design narrative only. **1155 offline tests pass** (+5 skipped when optional deps absent).
+🟢 built & validated · 🟡 built, partial · 🟠 designed with loadable config · ⚪ design narrative only. **1255 offline tests pass** (+5 skipped when optional deps absent).
 
 ## 🚀 Quickstart
 
@@ -79,7 +80,7 @@ git clone https://github.com/neosun100/sentinel-harness && cd sentinel-harness
 pip install -e .          # Python 3.10+ ; installs the `sentinel` CLI
 
 # offline tests need no AWS
-SENTINEL_EXECUTION_ROLE_ARN=arn:aws:iam::000000000000:role/test pytest tests/ -q   # 1155 passing
+SENTINEL_EXECUTION_ROLE_ARN=arn:aws:iam::000000000000:role/test pytest tests/ -q   # 1255 passing
 
 # configure for live runs (12-factor — nothing hardcoded)
 export AWS_PROFILE=<your-non-prod-profile>          # never production
@@ -131,10 +132,12 @@ Borrowed patterns (see [`docs/BLUEPRINT.md`](docs/BLUEPRINT.md)): supervisor→s
 - [x] **Layer 3** — tool/skill registry (dual-gate governance) + a PreToolUse sandbox hook, with tests. — `registry.py` / `sandbox_hooks.py`
 - [x] **Gateway wiring + named-supervisor scenario** — `gateway.py` (create/target/teardown helpers, live-validated create→READY→delete on the GA API) + `scenario_named_supervisor.py` (loads `research-supervisor` from `harness.yaml`, wires it to a Gateway). — `gateway.py`
 - [x] **Agent Factory** — config-driven fleet provisioning with dry-run validation, idempotency, and a cross-env tag-guard. — `factory.py`
-- [x] **Gateway/Registry/Memory CDK stack** — synth-validated TypeScript CDK (Gateway/Memory CFN types are registered; the Registry CFN type is not yet GA, so that stack is synth-only for now). — `iac-cdk/`
-- [x] **LiteLLM A2A specialist** — import-safe Strands+A2A+LiteLLM Runtime container skeleton with a tested agent-card (deps/Docker not built here). — `specialists/cve-intel/`
+- [x] **Gateway/Registry/Memory CDK stack** — synth-validated TypeScript CDK (Gateway/Memory CFN types registered; the not-yet-GA Registry type has a feature-flagged Lambda-backed custom-resource fallback — `-c sentinel:registryViaCustomResource=true` — so it is deploy-ready today). — `iac-cdk/`
+- [x] **LiteLLM A2A specialist** — Strands+A2A+LiteLLM Runtime container that really `docker build`s (multi-stage, pinned deps, non-root) + an in-process A2A contract test with a mocked model (zero-network round-trip). — `specialists/cve-intel/`
 - [x] **BAS long-running tier** — async-gen entrypoint, HITL-gated offensive steps (reusing Play Mode), checkpoint + self-restart skeleton, tested. — `longrunning/bas-runner/`
-- [ ] Deploy the CDK stack end-to-end once the Registry CFN type is GA; build & push the specialist container; run a live 3-specialist parallel A2A scan.
+- [x] **Detonation long-running tier** — full `QUEUED→…→DESTROYED` lifecycle state machine + `detonate_sample` orchestrator + scenario; honest SIMULATED no-op (sample-by-reference, sandbox-refused actions, HITL-gated, always destroyed after use). — `longrunning/detonation/`
+- [x] **Backend-pluggable data-plane tools** — `siem_query`/`asset_lookup`/`enrich_ioc`/`ops_query` gain a real stdlib-HTTP client behind a `*_LIVE` env (offline mock default; env-driven URL+bearer; failures→`upstream_error`, no silent fallback), proven against an in-process mock server. — `tools/`
+- [ ] Deploy the CDK stack end-to-end (incl. the Registry custom-resource path) on a live account; build & push the specialist container to ECR; run a live 3-specialist parallel A2A scan; wire the `*_LIVE` tool seams to a real SIEM/asset/IOC/ticketing backend.
 
 ## 📁 Repo layout
 
@@ -146,12 +149,12 @@ sentinel-harness/
 ├── tools/                MCP tool templates (sigma-lint real)   🟡 reference
 ├── skills/               Agent Skills (SKILL.md)                🟡 reference
 ├── harnesses/            declarative configs (loader-consumed)  🟢
-├── specialists/          A2A LiteLLM specialist container       🟡 skeleton
-├── longrunning/          BAS long-running Runtime tier          🟡 skeleton
+├── specialists/          A2A LiteLLM specialist container (docker-build + contract-tested) 🟢
+├── longrunning/          BAS + detonation Runtime tier (SIMULATED no-op, full-lifecycle) 🟢
 ├── iac-cdk/              L3 CDK stacks (8; guardrail/identity/obs live) 🟢
 ├── iac-terraform/        deployable Terraform mirror (validate-clean)  🟢
 ├── docs/                 ARCHITECTURE · BLUEPRINT · SETUP · HARNESSES · FIDELITY-REPORT
-├── tests/                offline unit + config tests (1155)     🟢
+├── tests/                offline unit + config tests (1255)     🟢
 └── .github/workflows/    CI incl. a customer-name / secret gate
 ```
 

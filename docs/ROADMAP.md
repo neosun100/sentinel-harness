@@ -407,7 +407,7 @@ hand-off reuses the live-capable M1/M2 engine (driven offline here, labeled a wi
       (`make deploy`, cost note, `make destroy`) + the no-lock-in export. — `docs/QUICKSTART.md`
 - [x] `tests/smoke/`: offline acceptance suite (default offline; `SENTINEL_SMOKE_LIVE=1` opt-in for live). — `tests/smoke/`
 
-**Acceptance:** `make test` → 1155 offline tests green; `make seed-registry` → dual-gate `ok`;
+**Acceptance:** `make test` → 1255 offline tests green; `make seed-registry` → dual-gate `ok`;
 `make create-harnesses` (DRY_RUN=1) → 8 harnesses validate offline with zero AWS; `sentinel export` → valid
 compilable Strands Python; `make smoke` → the offline acceptance suite green. A fresh non-prod account can then
 run `make deploy` (free-tier foundation) and the live scenarios; `make destroy` tears it all down.

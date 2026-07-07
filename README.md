@@ -12,11 +12,11 @@
   <img alt="license" src="https://img.shields.io/badge/license-MIT--0-30d158"/>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-2997ff"/>
   <img alt="bedrock-agentcore" src="https://img.shields.io/badge/Amazon%20Bedrock-AgentCore%20Harness-ff9900"/>
-  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-1008%20passing-1D8102"/>
+  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-1155%20passing-1D8102"/>
   <img alt="status" src="https://img.shields.io/badge/live--validated-CVE%20%C2%B7%20multi--harness%20%C2%B7%20HITL%20%C2%B7%20Play%20Mode-8b5cf6"/>
 </p>
 
-[Quickstart](#-quickstart) · [Architecture](#-architecture) · [Scenarios](#-scenarios--evidence) · [Status matrix](#-status-validated--designed--missing) · [Design principles](#-design-principles) · [Extending](#-extending) · [Roadmap](#-roadmap) · [Docs](docs/)
+[Quickstart](#-quickstart) · [Architecture](#-architecture) · [Scenarios](#-scenarios--evidence) · [Status matrix](#-status-validated--designed--missing) · [Design principles](#-design-principles) · [Extending](#-extending) · [Roadmap](#-roadmap) · [QUICKSTART](docs/QUICKSTART.md) · [Docs](docs/)
 
 </div>
 
@@ -50,6 +50,8 @@ Honest build status per capability — mirrors the self-audit.
 | **L1 Strategy** | Gateway wiring + end-to-end named-supervisor scenario | 🟢 **live-validated** (real Gateway create→READY→delete on GA API — `evidence/gateway_lifecycle_result.json`; named-supervisor loads from `harness.yaml`) | `sentinel_harness/gateway.py`, `scenarios/scenario_named_supervisor.py` |
 | **L1 Strategy** | Research supervisor → specialist delegation via registry/A2A | 🟠 **designed** (loadable harness.yaml; A2A specialist skeleton) | `harnesses/research-supervisor/`, `specialists/cve-intel/` |
 | **L1 Strategy** | Feedback loop closure — disposition auto-feeds strategy | 🟢 **live-validated** (offline, deterministic; FP batch auto-triggers whitelist optimization that preserves the TP + a rule-regen task, HITL-gated — `evidence/feedback_loop_result.json`) | `sentinel_harness/feedback.py`, `tools/whitelist_optimizer/`, `scenarios/scenario_feedback_loop.py` |
+| **L1 Strategy** | CVE triage against the asset plane (id → NVD+EPSS/KEV → asset → blast radius → HITL) | 🟢 **validated** (offline, deterministic MOCK; Log4Shell → `web-01` affected + blast radius, KEV-exploited, HITL-gated — `evidence/cve_asset_triage_result.json`) | `scenarios/scenario_cve_asset_triage.py`, `tools/{nvd_lookup,epss_kev,asset_lookup}/` |
+| **L1 Strategy** | Multi-account ops automation (enumerate accounts → triage findings → ticket, HITL) | 🟠 **designed** (loadable harness.yaml over a fictional 4-account inventory; read-only `ops_query`, `OPS_QUERY_LIVE` seam) | `harnesses/ops-automation/`, `tools/ops_query/`, `mockdata/accounts.py` |
 | **L2 Simulation** | Adversary emulation, Play Mode (every step human-gated) + checkpoint/resume | 🟢 **live-validated** | `scenarios/scenario_play_mode.py`, `sentinel_harness/simulation.py` |
 | **L2 Simulation** | BAS detection-replay + blind-spot report (real Sigma matcher) | 🟢 **live-validated** (offline, deterministic; 4 techniques × 2 rules → 2 blind spots, coverage 0.5) | `tools/sigma_match/`, `longrunning/bas-runner/bas_cases.py`, `scenarios/scenario_bas_replay.py` |
 | **L2 Simulation** | Attack-path reasoning + threat-hunt planning | 🟢 **built + tested** (real `build_attack_paths` / `build_hunt_plan`; A2A serving = skeleton) | `specialists/attack-mapper/`, `specialists/threat-hunt/`, `tools/asset_lookup/` |
@@ -68,7 +70,7 @@ Honest build status per capability — mirrors the self-audit.
 | **Tools** | `sigma_yara_lint` (real, deterministic, LLM-free) | 🟢 **functional + unit-tested** | `tools/sigma_yara_lint/`, `tests/test_sigma_yara_lint.py` |
 | **Tools** | `nvd_lookup` / `epss_kev` / `attack_lookup` / `web_search` | 🟡 **reference stubs** (offline-safe, contract-tested) | `tools/`, `tests/test_tool_handlers.py` |
 
-🟢 built & validated · 🟡 built, partial · 🟠 designed with loadable config · ⚪ design narrative only. **1008 offline tests pass** (+5 skipped when optional deps absent).
+🟢 built & validated · 🟡 built, partial · 🟠 designed with loadable config · ⚪ design narrative only. **1155 offline tests pass** (+5 skipped when optional deps absent).
 
 ## 🚀 Quickstart
 
@@ -77,7 +79,7 @@ git clone https://github.com/neosun100/sentinel-harness && cd sentinel-harness
 pip install -e .          # Python 3.10+ ; installs the `sentinel` CLI
 
 # offline tests need no AWS
-SENTINEL_EXECUTION_ROLE_ARN=arn:aws:iam::000000000000:role/test pytest tests/ -q   # 1008 passing
+SENTINEL_EXECUTION_ROLE_ARN=arn:aws:iam::000000000000:role/test pytest tests/ -q   # 1155 passing
 
 # configure for live runs (12-factor — nothing hardcoded)
 export AWS_PROFILE=<your-non-prod-profile>          # never production
@@ -110,7 +112,7 @@ Each scenario is runnable end-to-end and writes a result JSON to [`evidence/`](e
 - **Human-in-the-loop kills hallucination.** High-stakes actions pass through an `inline_function` gate; an independent reviewer harness attacks generated artifacts (no self-approval bias).
 - **Egress is controlled.** Prefer a `web_search`-style tool (text only) over raw download; there is no raw-download tool.
 - **Auth done right.** An IAM *execution role* scopes internal AWS access (least privilege — not per-person mapping). Humans use OAuth/JWT; secrets live in the token vault. `allowedTools` scopes the LLM's tool choice but **cannot** gate `InvokeAgentRuntimeCommand` — the only control there is withholding the IAM action.
-- **No lock-in.** When config isn't enough, `agentcore export harness` emits editable Strands code on the same compute / observability / identity.
+- **No lock-in.** When config isn't enough, `sentinel export <harness.yaml>` emits editable Strands starter code (model · prompt · tool allowlist · memory) so you can run the same agent on AgentCore Runtime or self-hosted and walk away from the managed harness at any time.
 
 ## 🧩 Extending
 
@@ -149,7 +151,7 @@ sentinel-harness/
 ├── iac-cdk/              L3 CDK stacks (8; guardrail/identity/obs live) 🟢
 ├── iac-terraform/        deployable Terraform mirror (validate-clean)  🟢
 ├── docs/                 ARCHITECTURE · BLUEPRINT · SETUP · HARNESSES · FIDELITY-REPORT
-├── tests/                offline unit + config tests (1008)     🟢
+├── tests/                offline unit + config tests (1155)     🟢
 └── .github/workflows/    CI incl. a customer-name / secret gate
 ```
 

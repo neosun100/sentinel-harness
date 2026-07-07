@@ -351,16 +351,31 @@ trace + `TokensPerScenario` + a Budgets alarm ④ JWT/API-key auth paths work.
 **Traps:** Harness has no native CDK construct → CFN Custom Resource (adopt-or-delete on
 `ConflictException`, backoff on `AccessDenied`, delete-and-wait); pin SDK versions.
 
-### M5 — Connect real data planes (requires target account/credits)
-**Goal:** swap stub tools for real data planes, add domain skills, multi-account ops automation.
-- [ ] `tools/siem_query` / `asset_lookup` / `enrich_ioc` / `create_ticket`: stub → your SIEM /
-      internal search store / asset system / ticketing (via MCP or API bridge, through the Gateway).
-- [ ] Add domain skills under `skills/<name>/SKILL.md` per your SecOps program's naming; register in `registry/tools.yaml`.
-- [ ] `harnesses/ops-automation/`: multi-account ops (one MCP per account or a support/CloudWatch API).
-- [ ] End-to-end CVE triage against a real asset MCP: id → `nvd_lookup`+`epss_kev` → `asset_lookup` → `CVETriage` → HITL.
+### M5 — Data planes + domain skills + multi-account ops — ✅ DELIVERED (DIY mock world, offline)
+**Goal:** stand up data-plane tools, domain skills, and multi-account ops automation against a
+self-contained **DIY mock world** (no customer data required for demo/POC); each tool keeps a
+`*_LIVE` opt-in as the seam to a real backend later.
+- [x] `tools/siem_query` / `asset_lookup` / `enrich_ioc` / `create_ticket`: deterministic tools reading the
+      cross-linked fictional world in `mockdata/` (RFC-5737 IPs, `example.test`); `*_LIVE` opts into a real
+      SIEM / search store / asset system / ticketing via MCP or API bridge through the Gateway. — `mockdata/`, `tools/`
+- [x] Domain skills under `skills/<name>/SKILL.md` (generic SecOps: `cve-asset-triage`, `soc-ip-lookup`,
+      `soc-triage`, `incident-ticketing`, `multi-account-ops`) — each references only real repo tools; the
+      ops tool is registered in `registry/tools.yaml` under the dual-gate. — `skills/`, `tools/ops_query/`
+- [x] `harnesses/ops-automation/`: a multi-account ops supervisor over a fictional 4-account inventory
+      (`mockdata/accounts.py`) via the read-only `tools/ops_query` tool (`OPS_QUERY_LIVE` → AWS Organizations /
+      support API / per-account CloudWatch later); every change gated on HITL. — `harnesses/ops-automation/`
+- [x] End-to-end CVE triage against the mock asset plane: id → `nvd_lookup`+`epss_kev` → `asset_lookup` →
+      structured `CVETriage` (blast radius + KEV) → HITL — `scenarios/scenario_cve_asset_triage.py`.
+
+**Acceptance (`evidence/cve_asset_triage_result.json`, closed:true):** Log4Shell `CVE-2021-44228` resolves to
+`web-01` as the affected host (CVSS + CISA-KEV exploited), computes a blast radius (reachable `app-01`,
+internet-exposed), recommends `patch_now_exposed_and_exploited`, and requires analyst sign-off before any
+action; a CVE affecting no mock host yields an empty affected-host list (no crash). Deterministic + offline.
 
 **Reuse:** M1/M4 Gateway + registry dual-gate + JWT/API-key. **Trap:** data planes vary →
 use `tool_remote_mcp(url, headers=${arn:...})` (token via the vault, agent never sees plaintext).
+**Honest limit:** the world is DIY mock, not a live customer plane; the `*_LIVE` env on each tool is the
+un-exercised seam to a real backend (needs a target account + the backend's MCP/API contract).
 
 ### M6 — Feedback-loop automation (strategy self-iteration closed) — ✅ DELIVERED (offline, deterministic)
 **Goal:** disposition results auto-feed strategy.
@@ -377,14 +392,25 @@ synthesized a Sigma filter (`dst_domain|endswith: assets.example.com`) that supp
 publishes except through the `request_publish_approval` HITL gate. Deterministic + offline; the rule-regen
 hand-off reuses the live-capable M1/M2 engine (driven offline here, labeled a wiring point).
 
-### M7 — Delivery form (one-command deploy + no lock-in)
-- [ ] `deploy.sh`: one command `cdk bootstrap+deploy` all stacks → seed registry → create harnesses (CFN CR) → smoke-test.
-- [ ] `make seed-registry` / `make create-harnesses` / `make reset`.
-- [ ] `sentinel export <harness>`: export to Strands code for migration to Runtime / self-hosting (no lock-in).
-- [ ] `tests/smoke/`: freeze the M1–M6 live acceptances into repeatable smoke tests.
+### M7 — Delivery form (one-command deploy + no lock-in) — ✅ DELIVERED
+- [x] Top-level `Makefile` — one ergonomic entry point (`make help` lists 13 targets): `test` / `lint` /
+      `synth` / `deploy` / `deploy-endpoints` / `seed-registry` / `create-harnesses` / `smoke` / `demo` /
+      `reset` / `destroy` / `clean`; `deploy`/`destroy` delegate to the existing M4 `deploy/deploy.sh`+`destroy.sh`
+      (confirm account+region) rather than reimplementing deploy. — `Makefile`
+- [x] `make seed-registry` (offline dual-gate governance check + prints approved tools) /
+      `make create-harnesses` (**DRY_RUN=1 offline validate by default** — 8 harnesses `would_create`, zero AWS;
+      `DRY_RUN=0` + creds to really create) / `make smoke` / `make reset`. — `deploy/seed_registry.sh`, `deploy/create_harnesses.sh`, `deploy/smoke.sh`
+- [x] `sentinel export <harness.yaml|name> [-o out.py]`: emits editable **Strands** starter code (model · system
+      prompt · tool allowlist · memory note) so a team can run the same agent on AgentCore Runtime / self-hosted
+      and walk away from the managed harness — no lock-in. Pure text artifact (no `strands` import at export time). — `sentinel_harness/exporter.py`, `sentinel export`
+- [x] `docs/QUICKSTART.md`: 60-second offline path (`make test` → `make demo` → `evidence/`) + the live path
+      (`make deploy`, cost note, `make destroy`) + the no-lock-in export. — `docs/QUICKSTART.md`
+- [x] `tests/smoke/`: offline acceptance suite (default offline; `SENTINEL_SMOKE_LIVE=1` opt-in for live). — `tests/smoke/`
 
-**Acceptance:** a fresh account runs `./deploy.sh` once; 9 smoke checks (harness READY / three
-scenarios / egress / guardrail / HITL negative / observability / cleanup no-orphans) all green.
+**Acceptance:** `make test` → 1155 offline tests green; `make seed-registry` → dual-gate `ok`;
+`make create-harnesses` (DRY_RUN=1) → 8 harnesses validate offline with zero AWS; `sentinel export` → valid
+compilable Strands Python; `make smoke` → the offline acceptance suite green. A fresh non-prod account can then
+run `make deploy` (free-tier foundation) and the live scenarios; `make destroy` tears it all down.
 
 ---
 

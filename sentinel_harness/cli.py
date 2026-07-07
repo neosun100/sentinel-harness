@@ -12,6 +12,7 @@ Subcommands
     sentinel delete   <harness-id> [--keep-memory]
     sentinel cleanup  <prefix>                            delete every harness whose name starts with prefix
     sentinel run-scenario <name>                          dispatch to scenarios/ (cve_triage | multi_harness | detection_gen)
+    sentinel export   <harness.yaml|name> [-o out.py]     emit editable Strands Agent code (no-lock-in escape hatch)
 
 Everything is env-parameterized (see core.py): SENTINEL_EXECUTION_ROLE_ARN,
 SENTINEL_REGION, AWS_PROFILE. Nothing here is customer- or company-specific.
@@ -56,9 +57,12 @@ import os
 import sys
 
 from . import core as sh
+from .exporter import export_harness_to_strands
 from .loader import load_harness_config
 
-SCENARIOS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scenarios")
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCENARIOS_DIR = os.path.join(_REPO_ROOT, "scenarios")
+HARNESSES_DIR = os.path.join(_REPO_ROOT, "harnesses")
 
 
 # --------------------------------------------------------------------------- io
@@ -244,6 +248,48 @@ def cmd_run_scenario(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_harness_path(harness: str) -> str:
+    """Resolve the export target to a harness.yaml path.
+
+    Accepts a direct path to a ``.yaml``/``.yml`` file, OR a harness name that
+    maps to ``harnesses/<name>/harness.yaml`` (the shipped layout). A bare name
+    is tried as-is and with common ``sentinel_``/``-``↔``_`` normalizations."""
+    # 1) A real file path wins outright.
+    if os.path.isfile(harness):
+        return harness
+    # 2) Otherwise treat it as a harness name under harnesses/<name>/harness.yaml.
+    candidates = [harness]
+    stripped = harness[len("sentinel_"):] if harness.startswith("sentinel_") else harness
+    for base in (stripped, stripped.replace("_", "-"), harness.replace("_", "-")):
+        if base not in candidates:
+            candidates.append(base)
+    for base in candidates:
+        candidate = os.path.join(HARNESSES_DIR, base, "harness.yaml")
+        if os.path.isfile(candidate):
+            return candidate
+    raise FileNotFoundError(
+        f"could not resolve harness {harness!r} — pass a path to a harness.yaml "
+        f"or a name under {HARNESSES_DIR}/<name>/harness.yaml"
+    )
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    """No-lock-in escape hatch: turn a harness config into editable Strands code."""
+    path = _resolve_harness_path(args.harness)
+    cfg = load_harness_config(path)
+    code = export_harness_to_strands(cfg)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            fh.write(code)
+        _eprint(f"wrote Strands Agent code for {cfg.get('name')!r} to {args.out}")
+    else:
+        sys.stdout.write(code)
+        if not code.endswith("\n"):
+            sys.stdout.write("\n")
+        sys.stdout.flush()
+    return 0
+
+
 # ------------------------------------------------------------------------- parser
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -281,6 +327,23 @@ def build_parser() -> argparse.ArgumentParser:
     rs = sub.add_parser("run-scenario", help="run a bundled scenario")
     rs.add_argument("name", choices=sorted(_SCENARIOS), help="scenario to run")
     rs.set_defaults(func=cmd_run_scenario)
+
+    ex = sub.add_parser(
+        "export",
+        help="emit editable Strands Agent code from a harness config (NO-LOCK-IN escape hatch)",
+        description=(
+            "No-lock-in escape hatch. Read a shipped harness config "
+            "(harnesses/<name>/harness.yaml, given as a path OR a harness name) and "
+            "EMIT editable Strands Agent Python — model id, system prompt, tool "
+            "allowlist, and a memory note — a starting point to run the same agent on "
+            "AgentCore Runtime or self-hosted, off the managed harness. The output is "
+            "a text code artifact; running it later needs `strands-agents`, but this "
+            "command does not."
+        ),
+    )
+    ex.add_argument("harness", help="path to a harness.yaml OR a harness name under harnesses/")
+    ex.add_argument("-o", "--out", help="write code to this file (default: stdout)")
+    ex.set_defaults(func=cmd_export)
 
     return p
 

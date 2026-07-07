@@ -7,6 +7,7 @@ from .core import (  # noqa: F401
     MODEL_SONNET, MODEL_HAIKU, MODEL_OPUS, REGION,
 )
 from .loader import load_harness_config, create_from_config  # noqa: F401
+from .exporter import export_harness_to_strands  # noqa: F401
 from .gateway import (  # noqa: F401
     create_gateway, wait_gateway_ready, create_gateway_target,
     lambda_mcp_target, openapi_http_target, mcp_server_target,

@@ -33,7 +33,8 @@ live) · 🟡 skeleton / partial · 🔴 gap.
 | `core.py` | 270 | Thin AgentCore Harness wrapper | ✅ | `create_harness(name, system_prompt, *, model, tools, skills, memory, allowed_tools, max_iterations, max_tokens, timeout_seconds)`; `wait_ready(id, timeout=360)`; `invoke(arn, session_id, text, *, actor_id, **overrides)→{text,events,stop_reason,tools_used,tool_use,metadata}`; `invoke_with_tool_result(...)` (the **two-message HITL resume contract**); tool/memory builders; `new_session(prefix)` (≥33 chars); `delete_harness/cleanup/list_harnesses`. Model env: `SENTINEL_MODEL_{OPUS,SONNET,HAIKU}` |
 | `factory.py` | 259 | Agent Factory (fleet provisioning, idempotency, cross-env tag-guard) — **the base for self-iteration** | 🟩 | `provision_fleet(manifest, *, dry_run)` (`would_create/created/exists`, `sentinel:env` tag-guard refuses cross-env overwrite); `teardown_fleet(...)`; `FactoryError` |
 | `loader.py` | 224 | `harness.yaml` → `create_harness` kwargs | 🟩 | `load_harness_config(path)` (offline; `${ENV_VAR}` expansion, keeps `${arn:...}`, reads `systemPrompt` file, **injects inline HITL gates**); `create_from_config(path)`. Built-in gates: `request_publish_approval` / `request_containment_approval` / `request_human_review` |
-| `registry.py` | 264 | Tool/skill dual-gate governance | 🟩 | `ToolRegistry(factory_map)`; `.resolve(name)` (live only if registry-approved **and** code-mapped); `.governance_check()→GovernanceReport`; `load_registry()` |
+| `registry.py` | 264 | Tool/skill dual-gate governance (offline) | 🟩 | `ToolRegistry(factory_map)`; `.resolve(name)` (live only if registry-approved **and** code-mapped); `.governance_check()→GovernanceReport`; `load_registry()` |
+| `registry_live.py` | 217 | LIVE AgentCore Registry control plane (the on-account dual-gate) | ✅ | `create_registry(name, *, auto_approval=False, authorizer_type, ...)→registryArn`; `get_registry`/`delete_registry`; `create_skill_record`/`create_custom_record` (land in `DRAFT`); `list_records`; `submit_for_approval` (`DRAFT`→`PENDING_APPROVAL`); `RegistryLiveError`; `DESCRIPTOR_TYPES`. Over `core._control` (`bedrock-agentcore-control`); live-verified on a dev account, walked offline in `scenario_registry_governance.py` |
 | `gateway.py` | 240 | AgentCore Gateway helper (create→READY→delete live-validated) | 🟩 | create/wait/delete gateway + target builders. **OAuth/JWT + Guardrail interceptor not yet wired** |
 | `simulation.py` | 392 | Play Mode (every offensive step HITL-gated) | ✅ | see `scenario_play_mode.py` |
 | `sandbox_hooks.py` | 127 | PreToolUse sandbox (path confinement / command allowlist / read-only cloud) | 🟩 | `validate_command` / `validate_path` |
@@ -44,13 +45,13 @@ live) · 🟡 skeleton / partial · 🔴 gap.
 | Dir | Contents | Status | Gap |
 |---|---|:--:|---|
 | `harnesses/` | `alert-triage` / `detection-eng` / `research-supervisor` | ✅ loader-consumed | missing meta / ops / self-improving harnesses |
-| `scenarios/` | `cve_triage` / `detection_gen` / `hitl_resume` / `multi_harness` / `named_supervisor` / `play_mode` (all runnable, evidence present) | ✅ | missing the self-iteration loop scenario |
+| `scenarios/` | `cve_triage` / `detection_gen` / `hitl_resume` / `multi_harness` / `named_supervisor` / `play_mode` / `registry_governance` (all runnable, evidence present) | ✅ | missing the self-iteration loop scenario |
 | `tools/` | `attack_lookup` / `epss_kev` / `nvd_lookup` / `sigma_yara_lint` / `web_search` (Lambda handlers, reference stubs) | 🟡 | **missing** `siem_query` / `asset_lookup` / `enrich_ioc` / `create_ticket` / `search_registry` / `invoke_specialist` / `harness_ops` |
 | `skills/` | `cve-triage-rubric` / `attack-path-reasoning` / `detection-writing-sop` / `ioc-vetting` | 🟩 | add domain skills as your SecOps program needs them |
 | `specialists/` | `cve-intel` only (import-safe A2A skeleton; container not built) | 🟡 | **missing** `attack-mapper` / `threat-hunt` / `adversarial-reviewer` |
 | `longrunning/` | `bas-runner` only (async-gen skeleton) | 🟡 | BAS case-generation + detection-replay logic, detonation microVM orchestration |
-| `iac-cdk/lib/` | 8 synth-green stacks — `gateway` / `registry` / `memory` / `network` / `identity` / `guardrail` / `observability` / `harness` (+ `iam`); `iac-terraform/` mirror is `terraform validate`-clean | ✅ | `guardrail` / `identity` / `observability` LIVE-deployed (us-east-1); `runtime` stack still to add |
-| `tests/` | 38 files, **740 offline passing** (+4 skipped) | ✅ | add tests with each new module |
+| `iac-cdk/lib/` | 8 synth-green stacks — `gateway` / `registry` / `memory` / `network` / `identity` / `guardrail` / `observability` / `harness` (+ `iam`); `iac-terraform/` mirror is `terraform validate`-clean | ✅ | `guardrail` / `identity` / `observability` LIVE-deployed (us-east-1); the Registry custom-resource Lambda still needs `@aws-sdk/client-bedrock-agentcore-control` bundled before a live `cdk deploy` (the Registry control-plane API is separately live-verified via `registry_live.py`); `runtime` stack still to add |
+| `tests/` | 64 files, **1306 offline passing** (+5 skipped) | ✅ | add tests with each new module |
 | `evidence/` | 13 live-evidence sets | ✅ | add one per milestone |
 
 ### 0.3 Fit score (vs. a full three-layer SecOps agent program)
@@ -180,8 +181,8 @@ Each milestone gives: **goal / files / reused APIs / acceptance (live evidence) 
 Suggest one feature branch per milestone.
 
 ### M0 — Environment & baseline reproduction (half a day)
-**Goal:** on a fresh machine, get all 740 offline tests green and reproduce ≥1 live scenario.
-- [ ] `uv sync` + `uv run pytest -q` → 740 passing (+4 skipped) (offline).
+**Goal:** on a fresh machine, get all 1306 offline tests green and reproduce ≥1 live scenario.
+- [ ] `uv sync` + `uv run pytest -q` → 1306 passing (+5 skipped) (offline).
 - [ ] Configure `SENTINEL_EXECUTION_ROLE_ARN` / `SENTINEL_REGION` / `AWS_PROFILE` (non-prod) — see `docs/SETUP.md`.
 - [ ] Run `scenarios/scenario_cve_triage.py`; compare `evidence/cve_triage_result.json` shape.
 - [ ] Run `scenarios/scenario_hitl_resume.py`; reproduce pause→approve→resume.
@@ -329,6 +330,17 @@ facts and partially deployed live on the dev account (us-east-1), free-tier stac
 - **Harness** (`iac-cdk/lib/harness-stack.ts`): the NATIVE `AWS::BedrockAgentCore::Harness` CFN type
   (recon corrected the old "needs a custom resource" assumption). Terraform mirror in `iac-terraform/`
   (`terraform validate` clean). Evidence: `evidence/m4_live_deploy_result.json`.
+- **Registry control plane** (`sentinel_harness/registry_live.py`): ✅ **LIVE-VERIFIED**. A real
+  Registry (`autoApproval=false`) and an `AGENT_SKILLS` `soc-triage` record were created on the dev
+  account and moved `DRAFT`→`PENDING_APPROVAL` via `submit_for_approval` — the on-account realization
+  of the offline dual-gate (a record exists but is NOT live until a human approves). The
+  `bedrock-agentcore-control` Registry ops (`CreateRegistry`/`GetRegistry`/`DeleteRegistry`/
+  `CreateRegistryRecord`/`SubmitRegistryRecordForApproval`/`ListRegistryRecords`) are confirmed real
+  (no longer TODO-guessed). The governance walk is proven offline in `scenario_registry_governance.py`
+  (`evidence/registry_governance_result.json`, closed:true). **Honest note:** this is the runtime SDK
+  path; the CDK custom-resource in `iac-cdk/lib/registry-cr.ts` now uses the confirmed action names but
+  still needs `@aws-sdk/client-bedrock-agentcore-control` bundled into the Lambda asset before a live
+  `cdk deploy` — no live CDK deploy has run.
 
 **Goal:** enterprise MCP gateway (JWT + API-key auth + Guardrail injection defense + audit),
 private VPC + egress allowlist, a unified LiteLLM inference gateway, CloudWatch observability + cost.
@@ -407,7 +419,7 @@ hand-off reuses the live-capable M1/M2 engine (driven offline here, labeled a wi
       (`make deploy`, cost note, `make destroy`) + the no-lock-in export. — `docs/QUICKSTART.md`
 - [x] `tests/smoke/`: offline acceptance suite (default offline; `SENTINEL_SMOKE_LIVE=1` opt-in for live). — `tests/smoke/`
 
-**Acceptance:** `make test` → 1255 offline tests green; `make seed-registry` → dual-gate `ok`;
+**Acceptance:** `make test` → 1306 offline tests green; `make seed-registry` → dual-gate `ok`;
 `make create-harnesses` (DRY_RUN=1) → 8 harnesses validate offline with zero AWS; `sentinel export` → valid
 compilable Strands Python; `make smoke` → the offline acceptance suite green. A fresh non-prod account can then
 run `make deploy` (free-tier foundation) and the live scenarios; `make destroy` tears it all down.
@@ -450,7 +462,7 @@ if eval.score >= criteria:
 ---
 
 ## 6. Testing & acceptance charter
-- **offline**: every new module gets `tests/test_*.py` (mock AWS); keep `uv run pytest -q` green (now 740, +4 skipped, only grows).
+- **offline**: every new module gets `tests/test_*.py` (mock AWS); keep `uv run pytest -q` green (now 1306, +5 skipped, only grows).
 - **config parity**: every new `harness.yaml` must pass `factory.provision_fleet(dry_run=True)` + `test_config_validation.py`.
 - **live evidence**: each milestone runs one real call, drops `evidence/<milestone>_result.json` + `.log`.
 - **governance**: each new tool keeps `registry.governance_check().ok == True`.

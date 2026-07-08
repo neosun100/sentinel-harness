@@ -10,13 +10,18 @@
  * via a provider-framework custom resource: CREATE/UPDATE/DELETE map to the
  * control-plane Registry lifecycle calls.
  *
- * HONESTY / TODO(confirm-against-GA): the exact control-plane action + client
- * package names for the Registry lifecycle are NOT verifiable offline here. The
- * mechanism, event shape, IAM wiring and RegistryArn return contract are correct;
- * the ACTION NAMES below (CreateRegistry / UpdateRegistry / DeleteRegistry /
- * GetRegistry) and the SDK package id are annotated placeholders to confirm against
- * the live `bedrock-agentcore-control` service model before a real deploy. Mirror
- * whatever gateway.py's `_control` client resolves to at that point.
+ * ACTION NAMES: the control-plane Registry lifecycle action names below
+ * (CreateRegistry / UpdateRegistry / DeleteRegistry / GetRegistry) are CONFIRMED
+ * against the live `bedrock-agentcore-control` service model (2026-07, us-east-1) -
+ * the same plane sentinel_harness/registry_live.py drives on-account. They are no
+ * longer guesses.
+ *
+ * HONESTY (still true, do not remove): the SDK client package
+ * `@aws-sdk/client-bedrock-agentcore-control` is REAL (published, v3.1081.0) but is
+ * NOT part of the Node 20 Lambda runtime's bundled AWS SDK v3 client set and is NOT
+ * in this asset's package.json, so it MUST be bundled into the Lambda asset
+ * (npm i into lambda/registry-provider, or switch the construct to NodejsFunction)
+ * before a live deploy. Until then loadControl() surfaces a clear, actionable error.
  *
  * SAFETY: no secrets, no hardcoded account/region/ARNs. Region comes from the
  * Lambda runtime env (AWS_REGION, injected by Lambda). Names/flags arrive only via
@@ -27,12 +32,14 @@
 // AWS SDK v3. The generic bedrock-agentcore-control client package is imported
 // lazily so a missing package surfaces as a clear deploy-time error (and so this
 // file stays importable during CDK synth / unit tests, which never execute it).
-// TODO(confirm-against-GA): package id may differ once the service GAs; align with
-// whatever sentinel_harness/gateway.py's control client resolves to.
+// This is the REAL, published client package (v3.1081.0) that
+// sentinel_harness/registry_live.py drives on-account; it is NOT bundled into the
+// Node 20 Lambda runtime, so it must be added to this asset before a live deploy.
 const CONTROL_CLIENT_PKG = "@aws-sdk/client-bedrock-agentcore-control";
 
-// TODO(confirm-against-GA): confirm these command/action names against the live
-// bedrock-agentcore-control model. Kept as constants so there is ONE place to fix.
+// CONFIRMED against the live bedrock-agentcore-control model (2026-07, us-east-1):
+// these are the real Registry lifecycle command names, not guesses. Kept as
+// constants so there is ONE place to reference them.
 const ACTIONS = {
   create: "CreateRegistryCommand",
   update: "UpdateRegistryCommand",
@@ -83,7 +90,8 @@ exports.handler = async function handler(event) {
       const out = await client.send(
         new mod[ACTIONS.create]({ name, description, autoApproval }),
       );
-      // TODO(confirm-against-GA): field names (registryArn / registryId) per model.
+      // CreateRegistry output field is registryArn (confirmed live 2026-07); the
+      // capitalized fallbacks are defensive only.
       const registryArn = out.registryArn || out.RegistryArn;
       const registryId = out.registryId || out.RegistryId || name;
       return {

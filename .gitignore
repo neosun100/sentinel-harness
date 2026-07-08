@@ -48,3 +48,6 @@ cdk.context.json
 
 # oh-my-claudecode local session/memory (may reference gitignored private notes — never commit)
 .omc/
+
+# Live on-account resource manifest (real ARNs/account — never commit)
+.live-resources.json

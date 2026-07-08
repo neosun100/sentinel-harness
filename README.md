@@ -12,7 +12,7 @@
   <img alt="license" src="https://img.shields.io/badge/license-MIT--0-30d158"/>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-2997ff"/>
   <img alt="bedrock-agentcore" src="https://img.shields.io/badge/Amazon%20Bedrock-AgentCore%20Harness-ff9900"/>
-  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-1255%20passing-1D8102"/>
+  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-1306%20passing-1D8102"/>
   <img alt="status" src="https://img.shields.io/badge/live--validated-CVE%20%C2%B7%20multi--harness%20%C2%B7%20HITL%20%C2%B7%20Play%20Mode-8b5cf6"/>
 </p>
 
@@ -59,7 +59,8 @@ Honest build status per capability — mirrors the self-audit.
 | **L3 Foundation** | Tool/skill registry (dual-gate governance) + PreToolUse sandbox hook | 🟢 **built + tested** | `sentinel_harness/registry.py`, `sentinel_harness/sandbox_hooks.py` |
 | **L3 Foundation** | Agent Factory (fleet provision, dry-run, cross-env tag-guard) | 🟢 **built + tested** | `sentinel_harness/factory.py` |
 | **L3 Foundation** | LiteLLM A2A specialist Runtime (container) | 🟢 **built + tested** (real multi-stage `Dockerfile` with pinned deps + non-root `docker build` succeeds; in-process A2A server↔client contract test with a **mocked** model + socket-connect guard proves zero-network round-trip + clean errors on malformed input) | `specialists/cve-intel/` (`Dockerfile`, `compose.yaml`, `local_a2a.py`) |
-| **L3 Foundation** | Gateway/Registry/Memory CDK stack | 🟢 **synth-validated** (Gateway/Memory CFN types registered; the not-yet-GA Registry type has a feature-flagged Lambda-backed custom-resource *path* — `-c sentinel:registryViaCustomResource=true`, tsc + both-state synth clean. Before a live deploy the control-plane action names need confirming against the GA model and the `bedrock-agentcore-control` SDK client must be bundled into the Lambda asset — see the `TODO(confirm-against-GA)` notes) | `iac-cdk/lib/registry-stack.ts`, `iac-cdk/lib/registry-cr.ts` |
+| **L3 Foundation** | AgentCore Registry control-plane governance (create Registry + records; DRAFT→PENDING_APPROVAL dual-gate) | 🟢 **live-verified** (a real Registry + an `AGENT_SKILLS` record were created on a non-prod dev account and moved `DRAFT` → `PENDING_APPROVAL` via `submit_for_approval`; `autoApproval=false` = the on-account realization of the offline dual-gate. `registry_live.py` wraps the confirmed-real `bedrock-agentcore-control` Registry ops; the governance walk is proven offline in `evidence/registry_governance_result.json`) | `sentinel_harness/registry_live.py`, `scenarios/scenario_registry_governance.py` |
+| **L3 Foundation** | Gateway/Registry/Memory CDK stack | 🟡 **synth-validated** (Gateway/Memory CFN types registered; the Registry type has a feature-flagged Lambda-backed custom-resource *path* — `-c sentinel:registryViaCustomResource=true`, tsc + both-state synth clean. The Lambda's Registry action names are now **confirmed** real against the GA model, but the `@aws-sdk/client-bedrock-agentcore-control` client is **not** in the Node20 bundled set / `package.json`, so it must be bundled before a live `cdk deploy` — no live CDK deploy has run) | `iac-cdk/lib/registry-stack.ts`, `iac-cdk/lib/registry-cr.ts` |
 | **L3 Foundation** | Guardrail — masks secrets/PII in tool responses | 🟢 **live-deployed + validated** (`GUARDRAIL_INTERVENED` masked a fake AWS key + token) | `iac-cdk/lib/guardrail-stack.ts`, `evidence/m4_guardrail_result.json` |
 | **L3 Foundation** | Cognito identity for Gateway CUSTOM_JWT (human + M2M) | 🟢 **live-deployed** (OIDC discovery reachable, RS256; authorizer contract verified) | `iac-cdk/lib/identity-stack.ts`, `gateway.cognito_jwt_authorizer` |
 | **L3 Foundation** | Observability — CW dashboard + TokensPerScenario + Budgets | 🟢 **live-deployed** | `iac-cdk/lib/observability-stack.ts` |
@@ -71,7 +72,7 @@ Honest build status per capability — mirrors the self-audit.
 | **Tools** | `nvd_lookup` / `epss_kev` / `attack_lookup` / `web_search` | 🟡 **reference stubs** (offline-safe, contract-tested) | `tools/`, `tests/test_tool_handlers.py` |
 | **Tools** | `siem_query` / `asset_lookup` / `enrich_ioc` / `ops_query` — backend-pluggable | 🟢 **built + tested** (offline mock default; `*_LIVE`=1 switches to a real stdlib-HTTP client — env-driven URL + bearer, timeouts, all failures→`upstream_error` with no silent fallback — proven end-to-end against an in-process 127.0.0.1 mock server, zero external network) | `tools/{siem_query,asset_lookup,enrich_ioc,ops_query}/`, `tests/test_*_live.py` |
 
-🟢 built & validated · 🟡 built, partial · 🟠 designed with loadable config · ⚪ design narrative only. **1255 offline tests pass** (+5 skipped when optional deps absent).
+🟢 built & validated · 🟡 built, partial · 🟠 designed with loadable config · ⚪ design narrative only. **1306 offline tests pass** (+5 skipped when optional deps absent).
 
 ## 🚀 Quickstart
 
@@ -80,7 +81,7 @@ git clone https://github.com/neosun100/sentinel-harness && cd sentinel-harness
 pip install -e .          # Python 3.10+ ; installs the `sentinel` CLI
 
 # offline tests need no AWS
-SENTINEL_EXECUTION_ROLE_ARN=arn:aws:iam::000000000000:role/test pytest tests/ -q   # 1255 passing
+SENTINEL_EXECUTION_ROLE_ARN=arn:aws:iam::000000000000:role/test pytest tests/ -q   # 1306 passing
 
 # configure for live runs (12-factor — nothing hardcoded)
 export AWS_PROFILE=<your-non-prod-profile>          # never production
@@ -107,6 +108,7 @@ Each scenario is runnable end-to-end and writes a result JSON to [`evidence/`](e
 | **HITL resume** | full pause→approve→resume via the two-message `toolUse`+`toolResult` contract | `closed_hitl_loop: true` — analyst approval flows back, agent finishes |
 | **Play Mode (L2)** | adversary emulation, every offensive step human-gated + checkpoint/resume | every step gated; reject halts; simulated no-ops (nothing real touched) |
 | **Live verify (on-account)** | the deployed L3 foundation really holds the two hard security constraints on a live dev account | `live_verified: true` — VPC is a default-deny island (no IGW/NAT/public ingress), zero plaintext secrets (Cognito secret server-side), and the Guardrail live-blocked a fake AWS key + anonymized NAME/EMAIL — `evidence/live_verify_result.json` |
+| **Registry governance** | the AgentCore Registry control-plane dual-gate: `autoApproval=false` ⇒ a record is `DRAFT` (exists but NOT live), `submit_for_approval` moves it `DRAFT`→`PENDING_APPROVAL`, never live until a human approves | `closed: true` — offline walk against a fake control client (zero AWS); `registry_live` itself is live-verified (a real Registry + `soc-triage` record created and moved `DRAFT`→`PENDING_APPROVAL` on a dev account) — `evidence/registry_governance_result.json` |
 
 ## 🧭 Design principles
 
@@ -133,12 +135,15 @@ Borrowed patterns (see [`docs/BLUEPRINT.md`](docs/BLUEPRINT.md)): supervisor→s
 - [x] **Layer 3** — tool/skill registry (dual-gate governance) + a PreToolUse sandbox hook, with tests. — `registry.py` / `sandbox_hooks.py`
 - [x] **Gateway wiring + named-supervisor scenario** — `gateway.py` (create/target/teardown helpers, live-validated create→READY→delete on the GA API) + `scenario_named_supervisor.py` (loads `research-supervisor` from `harness.yaml`, wires it to a Gateway). — `gateway.py`
 - [x] **Agent Factory** — config-driven fleet provisioning with dry-run validation, idempotency, and a cross-env tag-guard. — `factory.py`
-- [x] **Gateway/Registry/Memory CDK stack** — synth-validated TypeScript CDK (Gateway/Memory CFN types registered; the not-yet-GA Registry type has a feature-flagged Lambda-backed custom-resource *path* — `-c sentinel:registryViaCustomResource=true` — synth-clean in both modes; a live deploy still needs the GA control-plane action names confirmed and the `bedrock-agentcore-control` SDK client bundled into the Lambda asset). — `iac-cdk/`
+- [x] **AgentCore Registry control-plane governance** — `registry_live.py` over the real `bedrock-agentcore-control` Registry ops; live-verified (a real Registry + `soc-triage` `AGENT_SKILLS` record created and moved `DRAFT`→`PENDING_APPROVAL` on a dev account); `autoApproval=false` is the on-account dual-gate, walked offline in `scenario_registry_governance.py`. — `sentinel_harness/registry_live.py`
+- [x] **Gateway/Registry/Memory CDK stack** — synth-validated TypeScript CDK (Gateway/Memory CFN types registered; the Registry type has a feature-flagged Lambda-backed custom-resource *path* — `-c sentinel:registryViaCustomResource=true` — synth-clean in both modes; the Lambda's Registry action names are now confirmed against the GA model, but a live deploy still needs the `@aws-sdk/client-bedrock-agentcore-control` client bundled into the Lambda asset — no live CDK deploy has run). — `iac-cdk/`
 - [x] **LiteLLM A2A specialist** — Strands+A2A+LiteLLM Runtime container that really `docker build`s (multi-stage, pinned deps, non-root) + an in-process A2A contract test with a mocked model (zero-network round-trip). — `specialists/cve-intel/`
 - [x] **BAS long-running tier** — async-gen entrypoint, HITL-gated offensive steps (reusing Play Mode), checkpoint + self-restart skeleton, tested. — `longrunning/bas-runner/`
 - [x] **Detonation long-running tier** — full `QUEUED→…→DESTROYED` lifecycle state machine + `detonate_sample` orchestrator + scenario; honest SIMULATED no-op (sample-by-reference, sandbox-refused actions, HITL-gated, always destroyed after use). — `longrunning/detonation/`
 - [x] **Backend-pluggable data-plane tools** — `siem_query`/`asset_lookup`/`enrich_ioc`/`ops_query` gain a real stdlib-HTTP client behind a `*_LIVE` env (offline mock default; env-driven URL+bearer; failures→`upstream_error`, no silent fallback), proven against an in-process mock server. — `tools/`
-- [ ] Deploy the CDK stack end-to-end (incl. the Registry custom-resource path) on a live account; build & push the specialist container to ECR; run a live 3-specialist parallel A2A scan; wire the `*_LIVE` tool seams to a real SIEM/asset/IOC/ticketing backend.
+- [x] **Specialist container → ECR (live)** — the `cve-intel` A2A image really builds `linux/arm64` (AgentCore Runtime's required arch) and is **pushed to a real ECR repo** on a non-prod dev account (`sentinel-cve-intel:v1`, scan-on-push), plus a least-privilege `sentinel-runtime-exec` IAM execution role. — `specialists/cve-intel/`
+- [ ] Run the live A2A specialist on **AgentCore Runtime** (`CreateAgentRuntime`) — image + role + `PUBLIC` network config are ready, but `bedrock-agentcore:CreateAgentRuntime` is **denied by an Isengard account-level SCP** (even with `AdministratorAccess`, no permissions boundary): an org-level control outside this role's reach, not a code/config gap. Needs an account where the action is allowed.
+- [ ] Deploy the CDK stack end-to-end on a live account — incl. the Registry custom-resource path, which still needs the `@aws-sdk/client-bedrock-agentcore-control` client bundled into the Lambda asset (the Registry control-plane API itself is already live-verified via `registry_live.py`); wire the `*_LIVE` tool seams to a real SIEM/asset/IOC/ticketing backend.
 
 ## 📁 Repo layout
 
@@ -155,7 +160,7 @@ sentinel-harness/
 ├── iac-cdk/              L3 CDK stacks (8; guardrail/identity/obs live) 🟢
 ├── iac-terraform/        deployable Terraform mirror (validate-clean)  🟢
 ├── docs/                 ARCHITECTURE · BLUEPRINT · SETUP · HARNESSES · FIDELITY-REPORT
-├── tests/                offline unit + config tests (1255)     🟢
+├── tests/                offline unit + config tests (1306)     🟢
 └── .github/workflows/    CI incl. a customer-name / secret gate
 ```
 

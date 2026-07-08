@@ -12,10 +12,16 @@
  * actions, scoped to registry ARNs in this account/region. Account/region come
  * from the CDK env (this.account / this.region via Aws.*), never hardcoded.
  *
- * HONESTY / TODO(confirm-against-GA): the exact IAM action strings + the SDK
- * command names in the Lambda are annotated placeholders (`bedrock-agentcore:*
- * Registry`) to confirm against the live service model before a real deploy. The
- * mechanism, RegistryArn return contract, and scoping shape are correct.
+ * ACTION NAMES: the IAM action strings + the SDK command names in the Lambda are
+ * CONFIRMED against the live bedrock-agentcore-control service model (2026-07,
+ * us-east-1) - the same plane sentinel_harness/registry_live.py drives on-account.
+ * They are no longer guesses.
+ *
+ * HONESTY (still true, do not remove): the SDK client package
+ * `@aws-sdk/client-bedrock-agentcore-control` is REAL (published, v3.1081.0) but is
+ * NOT in the Node 20 Lambda runtime's bundled client set and NOT in the asset's
+ * package.json, so it must be bundled into lambda/registry-provider before a live
+ * deploy. This construct only synths; no live CDK deploy has been run.
  */
 import {
   Aws,
@@ -66,25 +72,24 @@ export class RegistryCustomResource extends Construct {
 
     // --- Least-privilege: ONLY the Registry control-plane actions, scoped to
     // registry ARNs in THIS account/region (Aws.* resolve from the CDK env, never
-    // hardcoded). TODO(confirm-against-GA): tighten the action list to the exact
-    // GA action names once the service model is published. ---
+    // hardcoded). The action strings are CONFIRMED against the live
+    // bedrock-agentcore-control model (2026-07, us-east-1). ---
     onEvent.addToRolePolicy(
       new iam.PolicyStatement({
         sid: "AgentCoreRegistryControlPlane",
         effect: iam.Effect.ALLOW,
         actions: [
-          // TODO(confirm-against-GA): confirm these action strings against the
-          // live bedrock-agentcore-control model before a real deploy.
+          // Real bedrock-agentcore Registry control-plane actions (confirmed live
+          // 2026-07). Exactly the four the handler's CREATE/UPDATE/DELETE path
+          // needs - no ListRegistries, keeping this strictly least-privilege.
           "bedrock-agentcore:CreateRegistry",
           "bedrock-agentcore:UpdateRegistry",
           "bedrock-agentcore:DeleteRegistry",
           "bedrock-agentcore:GetRegistry",
-          "bedrock-agentcore:ListRegistries",
         ],
         resources: [
           // Scope to registry resources in this account/region only.
           `arn:${Aws.PARTITION}:bedrock-agentcore:${Aws.REGION}:${Aws.ACCOUNT_ID}:registry/*`,
-          `arn:${Aws.PARTITION}:bedrock-agentcore:${Aws.REGION}:${Aws.ACCOUNT_ID}:registry`,
         ],
       }),
     );

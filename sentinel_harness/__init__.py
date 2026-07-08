@@ -20,6 +20,11 @@ from .factory import (  # noqa: F401
 from .registry import (  # noqa: F401
     ToolRegistry, ToolEntry, GovernanceReport, RegistryError, load_registry,
 )
+from .registry_live import (  # noqa: F401
+    create_registry, get_registry, delete_registry,
+    create_skill_record, create_custom_record, list_records, submit_for_approval,
+    RegistryLiveError, DESCRIPTOR_TYPES,
+)
 from .sandbox_hooks import (  # noqa: F401
     validate_command, validate_path, ALLOWED_COMMANDS, SANDBOX_ROOTS,
 )

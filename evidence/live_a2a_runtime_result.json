@@ -1,0 +1,17 @@
+{
+  "scenario": "live_a2a_runtime",
+  "account": "000000000000",
+  "note_account": "real test-account id redacted to 000000000000 per public-repo policy",
+  "agent_runtime_arn": "arn:aws:bedrock-agentcore:us-east-1:000000000000:runtime/sentinel_cve_intel-9Z9vXQDaG0",
+  "runtime_status": "READY",
+  "network_mode": "PUBLIC",
+  "protocol": "A2A",
+  "image_digest": "sha256:3dff2ac5a35586978990ae965b85e7a4241d29f9f35fb8b38e535142fa2e3880",
+  "image_arch": "linux/arm64",
+  "invoke_http_status": 200,
+  "a2a_jsonrpc_ok": true,
+  "model_invoked": "bedrock/global.anthropic.claude-haiku-4-5-20251001-v1:0",
+  "response_excerpt": "I'll fetch the intelligence on CVE-2021-44228 for you.\n<function_calls>\n<invoke name=\"nvd_lookup\">\n<parameter name=\"cve_id\">CVE-2021-44228</parameter>\n</invoke>\n<invoke name=\"epss_kev\">\n<parameter name=\"cve_id\">CVE-2021-44228</parameter>\n</invoke>\n</function_calls>\n<function_calls>\n<invoke name=\"attack_lookup\">\n<parameter name=\"cve_id\">CVE-2021-44228</parameter>\n</invoke>\n</function_calls>\n\nBased on authoritative data:\n\n**CVE-2021-44228 (Log4Shell) has CVSS 10.0 (Critical) severity and is confir",
+  "closed": true,
+  "note": "REAL end-to-end: a live A2A JSON-RPC message hit a running AgentCore Runtime microVM (PUBLIC net, A2A protocol); the cve-intel specialist container invoked the real Bedrock Haiku model (version-pinned id) and returned a structured Log4Shell verdict. Proven on a non-prod TEST account (zero real EC2/RDS workload); the Runtime was torn down after this run to stop compute billing."
+}

@@ -4,73 +4,196 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] — 2026-07-09
 
-### Added
-- **HITL loop closed** — `core.invoke_with_tool_result()` resumes a paused session via
-  the two-message `toolUse`→`toolResult` contract; `core.invoke` reconstructs the paused
-  call (`toolUseId` + accumulated input) as `result["tool_use"]`. Live pause→approve→resume
-  trace in `scenarios/scenario_hitl_resume.py` (`evidence/hitl_resume_result.json`).
-- **YAML→harness loader** (`sentinel_harness/loader.py`) + `sentinel create <harness.yaml>`
-  — `${ENV_VAR}` expansion, `system_prompt.md` resolution, inline-HITL-gate injection, and
-  `model`/`tools`/`memory`/`allowedTools` passthrough, so `harnesses/*.yaml` are live, not illustrative.
-- **Layer 2 — Play Mode** (`sentinel_harness/simulation.py`, `scenarios/scenario_play_mode.py`):
-  adversary emulation where every offensive step is human-gated, with checkpoint/resume;
-  live-validated (`every_step_gated`, `reject_halts_plan`, `checkpoint_roundtrip`).
-- **Layer 3 — governance** (`sentinel_harness/registry.py`, `sentinel_harness/sandbox_hooks.py`):
-  a dual-gate tool/skill registry (live only if registered *and* code-mapped) and a
-  PreToolUse sandbox hook (command allowlist + path containment).
-- **Unit coverage for previously untested code**: the functional `sigma_yara_lint` linter,
-  the four reference tool handlers, and the `sentinel` CLI.
-- **Gateway wiring** (`sentinel_harness/gateway.py`): create/wait/target/teardown helpers over
-  the AgentCore Gateway control plane, plus `lambda_mcp_target` / `openapi_http_target` /
-  `mcp_server_target` builders. **Live-validated** create→READY→delete on the GA API. An
-  end-to-end named-supervisor scenario (`scenarios/scenario_named_supervisor.py`) loads the
-  `research-supervisor` from its `harness.yaml` and wires it to a Gateway.
-- **Agent Factory** (`sentinel_harness/factory.py`): config-driven fleet provisioning from one
-  manifest — dry-run validation with zero AWS calls, idempotency (one shared `list_harnesses`),
-  and a cross-env `sentinel:env` tag-guard that refuses to touch a same-named harness owned by
-  another environment.
-- **BAS long-running tier** (`longrunning/bas-runner/`): async-generator entrypoint skeleton with
-  HITL-gated offensive steps (reusing Play Mode), local/S3 checkpoint, and a self-restart hook —
-  the tier for jobs that exceed a harness `timeoutSeconds`.
-- **A2A specialist skeleton** (`specialists/cve-intel/`): import-safe Strands + A2AServer +
-  LiteLLM Runtime container with a tested agent-card (deps/Docker intentionally not built here).
-- **CDK stack** (`iac-cdk/`): synth-validated Gateway/Registry/Memory + DynamoDB tool-registry
-  stacks, fully env-parameterized. Gateway/Memory CFN types are registered; the Registry CFN
-  type is not yet GA, so that stack is synth-only for now.
+Milestones M0–M7 all delivered. Sentinel-harness grows from a Layer-1 reference into
+a full self-iterating SecOps agent factory with live-verified control planes: the
+meta-agent builds and self-improves agents, Layer-2 attack validation runs on a real
+Sigma matcher, the Layer-3 foundation IaC is deployed to a non-prod dev/test account,
+and an A2A specialist executed end-to-end on AgentCore Runtime against a real model.
 
-### Fixed
-- CLI BYO-memory config silently dropped its retrieval tuning: `_build_memory` read the
-  removed `messages_count` key and passed it to `core.byo_memory`, whose second parameter
-  is now `retrieval_config` (`retrievalConfig`). Now reads the correct key (regression-tested).
-- Corrected two stale "roadmap item" comments (`core.tool_inline`, `loader.py` header) that
-  described already-shipped, live-validated features.
-- Gateway name validation matched the wrong rule. A real `CreateGateway` `ValidationException`
-  revealed the live constraint is `([0-9a-zA-Z][-]?){1,48}` — alphanumerics with optional single
-  hyphens, **no underscores**, max 48 chars — not the harness name rule. Tightened
-  `gateway._NAME_RE` and corrected the tests that had asserted the wrong (looser) shape. (Caught
-  only because we ran a real smoke test, not just the offline mocks.)
+Everything below is grouped by milestone, then by Keep-a-Changelog category. All test
+counts are offline and deterministic (zero AWS by default). Live claims are marked and
+were validated on a **non-production dev/test account** (account id scrubbed to
+`000000000000` in all committed evidence). The honest remaining limits are enumerated
+under **Known limitations** — no 🟡 was promoted to 🟢 and no full `cdk deploy` or
+live customer backend is claimed.
 
-### Changed
-- Detection-gen scenario defines success on **substance** (an independent verdict was
-  reached + the flawed rule was withheld from publish + no stray shell) with a robust prose
-  parser as fallback, rather than on whether the model emitted a structured tool call — a
-  known model-behavior quirk that `allowedTools` narrows but cannot force. Documented honestly.
+### M1 — meta-agent self-iteration (agent builds agents)
+
+#### Added
+- **Meta-agent self-iteration** (`harnesses/meta-agent/`, `harnesses/agent-ops/`,
+  `intake/adapter.py`, `tools/harness_ops`): an agent that normalizes a natural-language spec
+  (or notes / framework errors) into a harness definition, then authors, validates, and
+  provisions the child harness. **Live-validated** — the agent-builds-agents loop ran
+  end-to-end (`scenarios/scenario_agent_factory_loop.py`, evidence recorded with account id
+  scrubbed).
+
+### M2 — evaluation-driven self-improvement
+
+#### Added
+- **Self-improvement loop** (`harnesses/self-improving/`, `harnesses/llm-judge/`,
+  `tools/run_evaluation`): score a harness against an eval set, generate an improved
+  candidate, then **promote** it only when the score clears the bar — a closed score →
+  improve → promote cycle. **Live-validated** (`scenarios/scenario_self_improve_loop.py`).
+
+#### Tests
+- Added regression, integration, offline-E2E, edge, and demo suites for the M2 loop
+  (`test_m2_regression.py`, `test_m2_integration.py`, `test_m2_e2e_offline.py`,
+  `test_m2_edge.py`, `test_m2_demo.py`, `test_m2_harnesses.py`).
+
+### M3 — Layer 2 attack validation
+
+#### Added
+- **Real Sigma matcher** (`tools/sigma_match`): a functional detection-logic evaluator
+  (not a stub) that matches Sigma rules against event records.
+- **BAS detection-replay** (`scenarios/scenario_bas_replay.py`, `tools`/`tests` for BAS cases):
+  replays breach-and-attack-simulation cases through the matcher to validate detections.
+- **Honest skeletons** for the tiers that are not yet runnable end-to-end, kept explicitly
+  labelled as skeletons rather than dressed up as live.
+
+#### Tests
+- Closed measured coverage gaps (74% → 98%) with dedicated `asset_lookup` tests and added
+  coverage tooling (`test_sigma_match.py`, `test_bas_cases.py`, `test_bas_replay_scenario.py`).
+
+### M4 — Layer 3 foundation IaC
+
+#### Added
+- **L3 foundation IaC** (`iac-cdk/`, `iac-terraform/`): identity, network/VPC, guardrail,
+  observability, and harness stacks in both CDK and a Terraform mirror.
+- **Egress control**: a private-VPC default-deny posture (no IGW / NAT / `0.0.0.0/0` route)
+  plus a deploy runbook, platform demo, and smoke suite.
+- **Live-deployed and validated** on a non-prod dev/test account:
+  - Guardrail `GUARDRAIL_INTERVENED` masked a fake AWS key (`evidence/` proof).
+  - Cognito `CUSTOM_JWT` OIDC/JWKS RS256 identity.
+  - Private-VPC default-deny egress verified (`closed: true`).
+
+#### Fixed
+- Unified all live stacks to a single region (`us-east-1`) and root-fixed a Cognito domain
+  global-collision failure.
+- EC2 `SecurityGroup` rejects a non-ASCII `GroupDescription` — enforced ASCII-only in stack
+  strings.
+
+#### Changed
+- Trued up every claim after an AgentCore authenticity audit; corrected a stale region
+  reference.
+
+### M5 — mock data planes, tools, skills, and ops automation
+
+#### Added
+- **Mock data layer + data-plane tools** (`tools/siem_query`, `tools/asset_lookup`,
+  `tools/enrich_ioc`) with an alert-triage POC wired end-to-end on DIY mock data.
+- **Ops-automation harness** (`harnesses/ops-automation/`, `harnesses/agent-ops/`,
+  `tools/ops_query`, `tools/harness_ops`) for fleet/multi-account operations.
+- **Cyber skills** (`skills/soc-triage`, `soc-ip-lookup`, `incident-ticketing`,
+  `multi-account-ops`, `cve-asset-triage`) in AgentSkills.io format.
+- **CVE-asset triage** scenario cross-linking CVE intel to asset inventory.
+- **`*_LIVE` tool seams**: SIEM / asset / IOC / ops clients are backend-pluggable HTTP
+  clients — real seams that connect to a customer backend when one is supplied (offline mock
+  by default). See Known limitations for what is not yet wired.
+
+#### Tests
+- Added `test_mockworld.py`, `test_alert_triage_poc.py`, `test_cve_asset_triage.py`,
+  `test_cyber_skills.py`, and `*_live.py` seam tests for each data-plane tool.
+
+### M6 — feedback loop
+
+#### Added
+- **Feedback-loop automation** (`tools/whitelist_optimizer`, feedback scenario): analyst
+  disposition auto-feeds detection strategy, closing the loop — HITL-gated so a human
+  approves before strategy changes take effect.
+
+#### Fixed
+- Stopped tracking `.omc/` — OMC session memory had leaked a private-note filename into the
+  repo.
+
+#### Tests
+- Added `test_feedback.py`, `test_feedback_loop_scenario.py`, `test_whitelist_optimizer.py`.
+
+### M7 — delivery form
+
+#### Added
+- **One-command entry** via `Makefile`, a lock-in-free `sentinel export`, and a `QUICKSTART`
+  so the harness can be adopted without bespoke setup.
+
+#### Tests
+- Added `test_makefile.py`, `test_exporter.py`, `test_quickstart_doc.py`.
+
+### Registry control plane — live-verified
+
+#### Added
+- **AgentCore Registry control plane** (`sentinel_harness/registry.py`, `tools`/scenario,
+  `iac-cdk/lib/registry-stack.ts` + `registry-cr.ts`): create + records +
+  `DRAFT → PENDING_APPROVAL` governance flow. **Live-verified on-account** via
+  `test_registry_live.py` / `registry_live.py`.
+- A Lambda-backed custom-resource fallback (`registry-cr.ts`) so the Registry stack is
+  deploy-ready ahead of the CFN type reaching GA (see Known limitations).
+
+### AgentCore Runtime — live A2A end-to-end
+
+#### Added
+- **Live A2A specialist on AgentCore Runtime** (`specialists/cve-intel/`,
+  `iac-cdk/lib/runtime-stack.ts`, `scenarios`/`test_live_a2a_runtime_scenario.py`):
+  `CreateAgentRuntime` provisioned a real arm64 microVM (public net, A2A), a live
+  `message/send` returned HTTP 200 driven by a real Bedrock Haiku model, which triaged
+  Log4Shell (`CVETriage`, CVSS 10.0). Torn down afterward.
+- Productionized the cve-intel A2A container with a real Docker build and a contract test
+  (`test_cve_intel_container.py`, `test_cve_intel_a2a.py`).
+
+### Adversarial completeness review
+
+#### Fixed
+- Resolved **25 findings** from an adversarial completeness re-audit, including:
+  - a **sandbox newline-bypass** in the PreToolUse command allowlist,
+  - a `--region` CLI flag that was a **no-op**,
+  - missing **byte-caps** on unbounded reads,
+  - model-id pinning (full version suffix required or invoke silently fails),
+  - a tautological test assertion, and a doc overclaim.
+
+### Nice-to-have polish (13 items)
+
+#### Added
+- **Runtime CDK stack** (`iac-cdk/lib/runtime-stack.ts`) added to the stack set.
+
+#### Changed
+- **Specialist A2A parity** across `cve-intel`, `attack-mapper`, and `threat-hunt`
+  (shared `_a2a_contract.py`).
+- **Terraform mirror alignment** with the CDK stacks (`terraform validate` clean).
+- **CI `iac` job** added: `tsc` + `cdk synth` + stack tests, alongside the Python matrix.
+
+### Changed (project-wide)
+- Detection-gen scenario continues to define success on **substance** (independent verdict
+  reached + flawed rule withheld from publish + no stray shell) via a robust prose parser,
+  not on whether the model emitted a structured tool call — a known model-behavior quirk
+  that `allowedTools` narrows but cannot force.
+
+### Security
+- CI gained an `iac` job on top of the existing secret / customer-name scan gate; all
+  committed evidence uses `000000000000` for account ids and RFC-5737 documentation IPs.
+- Fully anonymized — no organization-specific data, hardcoded account IDs, or secrets.
 
 ### Tests
-- Offline suite grown **42 → 295** (still zero AWS calls; +1 skipped when optional deps absent):
-  adds `test_gateway.py` (41), `test_bas_runner.py` (17), `test_factory.py` (14),
-  `test_specialist.py` (11) on top of `test_sigma_yara_lint.py` (24), `test_tool_handlers.py` (29),
-  `test_cli.py` (23), `test_sandbox_hooks.py` (33), `test_registry.py` (20), `test_loader.py` (10),
-  `test_simulation.py` (11), `test_detection_gen_scenario.py` (21), and the original
-  config-validation set.
+- Offline suite grown **42 → 1475 passing** (+5 skipped when optional deps are absent),
+  across **77 test files** (76 under `tests/` + 1 under `tests/smoke/`). Still deterministic and zero-AWS by default. CI runs the Python
+  matrix (3.10 / 3.11 / 3.12) plus the secret/customer-name scan and the new `iac` job — all
+  green at HEAD. (Python 3.13 is outside the supported matrix.)
 
-### Planned
-- Deploy the CDK stack end-to-end once the `AWS::BedrockAgentCore::Registry` CFN type is GA
-  (Gateway/Memory types are already registered; synth passes today).
-- Build & push the A2A specialist container and run a live 3-specialist parallel scan through
-  the supervisor → registry → A2A path.
+### Inventory at 0.2.0
+- 16 scenarios, 23 evidence JSON artifacts, 14 tools, 9 skills, 8 harnesses
+  (including a research-supervisor harness), 3 specialists (cve-intel / attack-mapper / threat-hunt),
+  9 CDK stacks (gateway / registry / memory / network / identity / guardrail / observability /
+  harness / runtime) plus `iam.ts`, and a `terraform validate`-clean Terraform mirror.
+
+### Known limitations
+- A full `cdk deploy` of the Registry / runtime raw-`CfnResource` stacks **fails** until those
+  CloudFormation types are GA **and** the `bedrock-agentcore-control` SDK client is bundled into
+  the Lambda asset. The stacks synth today and ship a custom-resource fallback.
+- Wiring the `*_LIVE` tool seams to a **real customer SIEM / asset / IOC / ticketing backend**
+  requires a customer account — the seams are real but ship pointed at offline mock data.
+- **Detonation is an honest SIMULATED no-op** (`longrunning/detonation/`) — no real malware,
+  VM, or network is exercised.
+- On the primary dev account, `CreateAgentRuntime` is blocked by an org SCP; the live A2A
+  end-to-end run above was performed on a separate non-prod test account.
 
 ## [0.1.0] — 2026-07-03
 
@@ -110,5 +233,5 @@ configuration on Amazon Bedrock AgentCore Harness.
 - Long-term (semantic) memory extraction is asynchronous (minutes-scale) — expected
   AgentCore behavior, documented in `SETUP.md` / `evidence/README.md`.
 
-[Unreleased]: https://github.com/neosun100/sentinel-harness/compare/v0.1.0...HEAD
+[0.2.0]: https://github.com/neosun100/sentinel-harness/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/neosun100/sentinel-harness/releases/tag/v0.1.0

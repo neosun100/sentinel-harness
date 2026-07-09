@@ -13,10 +13,11 @@
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-2997ff"/>
   <img alt="bedrock-agentcore" src="https://img.shields.io/badge/Amazon%20Bedrock-AgentCore%20Harness-ff9900"/>
   <img alt="tests" src="https://img.shields.io/badge/offline%20tests-1475%20passing-1D8102"/>
-  <img alt="status" src="https://img.shields.io/badge/live--validated-CVE%20%C2%B7%20multi--harness%20%C2%B7%20HITL%20%C2%B7%20Play%20Mode-8b5cf6"/>
+  <img alt="milestones" src="https://img.shields.io/badge/milestones-M0--M7%20delivered-1D8102"/>
+  <img alt="live" src="https://img.shields.io/badge/live--validated-Registry%20%C2%B7%20AgentCore%20Runtime%20A2A-8b5cf6"/>
 </p>
 
-[Quickstart](#-quickstart) · [Architecture](#-architecture) · [Scenarios](#-scenarios--evidence) · [Status matrix](#-status-validated--designed--missing) · [Design principles](#-design-principles) · [Extending](#-extending) · [Roadmap](#-roadmap) · [QUICKSTART](docs/QUICKSTART.md) · [Docs](docs/)
+[Quickstart](#-quickstart) · [Architecture](#-architecture) · [Live on AWS](#-live-validated-on-aws) · [Scenarios](#-scenarios--evidence) · [Status matrix](#-status-validated--designed--missing) · [Design principles](#-design-principles) · [Docs map](#-documentation-map) · [Roadmap](#-roadmap)
 
 </div>
 
@@ -24,17 +25,34 @@
 
 ## Why
 
-A security team usually already has models, internal MCP servers, and a pile of skills — what's missing is a **framework to circulate them** so that "what one analyst has, everyone has." `sentinel-harness` is a reference implementation of that framework on the [Amazon Bedrock AgentCore **Harness**](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness.html). You declare an agent as configuration and AWS runs the whole agent loop — so swapping a model, adding a tool, or replacing a skill is **a config change, not a rebuild**.
+**The thesis: a production SecOps agent should be *configuration*, not orchestration code.** You declare an agent — model · prompt · tools · skills · memory · limits — and AWS runs the entire agent loop for you. Swapping a model, adding a tool, or replacing a skill becomes a **config change, not a rebuild**.
 
-Everything here is **generic SecOps content** built and tested against a **non-production** account — no proprietary data, no real vulnerable assets, no real malware. It reverse-engineers a common three-layer SecOps agent architecture into AgentCore primitives, borrowing verified patterns from four AWS samples.
+A mature security team usually already owns the pieces — models, internal MCP servers, a pile of analyst skills. What's missing is a **framework to circulate them** so that "what one analyst has, everyone has." `sentinel-harness` is a reference implementation of that framework on the [Amazon Bedrock AgentCore **Harness**](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness.html): it reverse-engineers a common three-layer SecOps agent architecture (Strategy / Simulation / Foundation) into AgentCore primitives, borrowing verified patterns from four AWS samples.
+
+Everything here is **generic SecOps content** built and tested against a **non-production** account — no proprietary data, no real vulnerable assets, no real malware. Delivered across milestones **M0–M7**, with the Registry control-plane and AgentCore Runtime **live-validated on AWS** (see below).
 
 > **What's real vs. aspirational — read this first.** Layer 1 ships **live-validated scenarios** (including a real Gateway create→READY→delete on the GA API) and a library-grade core. Layer 2 Play Mode is live-validated, BAS detection-replay is real (a deterministic Sigma matcher finds detection blind spots offline), and sample detonation is a built+tested full-lifecycle orchestrator that stays an **honest SIMULATED no-op** (no real malware/VM/network — sample-by-reference, sandbox-refused actions, HITL-gated, always destroyed after use). Layer 3 ships a built+tested tool/skill registry, sandbox hooks, and Agent Factory; a dual-track IaC foundation (CDK + a `terraform validate`-clean Terraform mirror) where the Guardrail, Cognito JWT identity, and CloudWatch/Budgets observability stacks are **live-deployed and validated on a real dev account** (a Guardrail really masked a fake AWS key; the private-VPC PrivateLink endpoints stay cost-gated off); plus an A2A specialist container that really `docker build`s (pinned deps, non-root) with a mocked-model zero-network contract test. The four core data-plane tools (`siem_query`/`asset_lookup`/`enrich_ioc`/`ops_query`) are backend-pluggable: offline mock by default, a real stdlib-HTTP client behind a `*_LIVE` env, so connecting a real backend is a config change, not a rebuild. The [status matrix](#-status-validated--designed--missing) is precise about what's proven, built, designed, or skeleton — 🟡 rows are honest about their limits. This honesty is deliberate — see the self-audit in [`docs/FIDELITY-REPORT.md`](docs/FIDELITY-REPORT.md).
 
 ## 🏛 Architecture
 
-<div align="center"><img src="assets/architecture.png" width="960" alt="sentinel-harness architecture"/></div>
+<div align="center"><img src="assets/architecture.svg" width="900" alt="sentinel-harness architecture on Amazon Bedrock AgentCore"/></div>
 
 Callers authenticate via OAuth/JWT (humans) or SigV4 (services); third-party secrets sit in the AgentCore Identity token vault (the agent never sees raw credentials). A **two-plane API** (control + streaming data) drives a **managed harness** running in a per-session Firecracker microVM — the agent loop, config fields, primitives (Memory / Gateway / Browser / Code Interpreter), an `inline_function` human-in-the-loop gate, egress control, and the multi-harness + supervisor pattern. On the right, the three SecOps layers. Full write-up: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); layer→primitive mapping and borrowed patterns: [`docs/BLUEPRINT.md`](docs/BLUEPRINT.md).
+
+### ✅ Live-validated on AWS
+
+Not just synthesized — these were exercised against real AgentCore/AWS APIs on a **non-production dev/test account** (every committed account ID scrubbed to `000000000000`), then torn down:
+
+| Proof | What actually ran on-account | Evidence |
+|---|---|---|
+| **AgentCore Runtime + A2A** | `CreateAgentRuntime` → real `arm64` microVM (PUBLIC net, A2A) → live A2A `message/send` **HTTP 200** → real Bedrock Haiku → Log4Shell verdict (CVSS 10.0); torn down after | [`evidence/live_a2a_runtime_result.json`](evidence/live_a2a_runtime_result.json) |
+| **AgentCore Registry governance** | real Registry + `AGENT_SKILLS` record created, then moved `DRAFT`→`PENDING_APPROVAL` (`autoApproval=false` dual-gate) | [`evidence/registry_governance_result.json`](evidence/registry_governance_result.json) |
+| **Gateway lifecycle** | Gateway create→`READY`→delete on the GA API | [`evidence/gateway_lifecycle_result.json`](evidence/gateway_lifecycle_result.json) |
+| **Guardrail** | `GUARDRAIL_INTERVENED` masked a fake AWS key + token in a tool response | [`evidence/m4_guardrail_result.json`](evidence/m4_guardrail_result.json) |
+| **Cognito CUSTOM_JWT identity** | OIDC discovery reachable, JWKS RS256, authorizer contract verified | [`evidence/m4_live_deploy_result.json`](evidence/m4_live_deploy_result.json) |
+| **Private-VPC default-deny egress** | topology proves no IGW / no NAT / no `0.0.0.0/0` — PrivateLink-only; endpoints then torn down (cost-gated) | [`evidence/egress_control_result.json`](evidence/egress_control_result.json) |
+
+**Honest note on what is *not* yet proven:** a full `cdk deploy` of the Registry/Runtime raw-`CfnResource` stacks fails until those CFN types are GA *and* the `bedrock-agentcore-control` SDK client is bundled into the Lambda asset (the control-plane APIs themselves are live-verified above); wiring the `*_LIVE` tool seams to a real SIEM / asset / IOC / ticketing backend needs a customer account; detonation is an honest **SIMULATED no-op** (no real malware / VM / network). On the primary dev account `CreateAgentRuntime` is blocked by an org SCP — it was validated on a separate test account.
 
 ## 📊 Status: validated / designed / missing
 
@@ -147,6 +165,21 @@ Borrowed patterns (see [`docs/BLUEPRINT.md`](docs/BLUEPRINT.md)): supervisor→s
 - [x] **Live A2A specialist on AgentCore Runtime** — 🟢 **live-validated** on a non-prod TEST account: `CreateAgentRuntime` provisioned a real `linux/arm64` microVM (`PUBLIC` net, `A2A` protocol) from the ECR image; a live A2A JSON-RPC `message/send` returned **HTTP 200** and the `cve-intel` specialist invoked the **real Bedrock Haiku model** (version-pinned id) to produce a structured Log4Shell verdict (CVSS 10.0) — `evidence/live_a2a_runtime_result.json`. Runtime was **torn down after the run** to stop compute billing. (On the primary dev account this same call is blocked by an Isengard account-level SCP — an org control, not a code gap.)
 - [ ] Deploy the CDK stack end-to-end on a live account — incl. the Registry custom-resource path, which still needs the `@aws-sdk/client-bedrock-agentcore-control` client bundled into the Lambda asset (the Registry control-plane API itself is already live-verified via `registry_live.py`); wire the `*_LIVE` tool seams to a real SIEM/asset/IOC/ticketing backend.
 
+## 📚 Documentation map
+
+| Doc | What's inside |
+|---|---|
+| [`docs/QUICKSTART.md`](docs/QUICKSTART.md) | Fastest path from clone → offline tests → first scenario |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Two-plane API, managed harness, primitives, the three SecOps layers |
+| [`docs/BLUEPRINT.md`](docs/BLUEPRINT.md) | Layer→primitive mapping + the four borrowed AWS-sample patterns |
+| [`docs/SETUP.md`](docs/SETUP.md) | Least-privilege execution-role policy and live-run configuration |
+| [`docs/HARNESSES.md`](docs/HARNESSES.md) | The declarative `harness.yaml` configs and how the loader consumes them |
+| [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) | Registry dual-gate, HITL, sandbox hooks, and tag-guard controls |
+| [`docs/TESTING.md`](docs/TESTING.md) | The 1475-test offline suite: layout, determinism, how to run |
+| [`docs/FIDELITY-REPORT.md`](docs/FIDELITY-REPORT.md) | The self-audit — real vs. built vs. designed, with limits stated |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Delivered milestones (M0–M7) and what's next |
+| [`CHANGELOG.md`](CHANGELOG.md) | Versioned change history |
+
 ## 📁 Repo layout
 
 ```
@@ -159,9 +192,9 @@ sentinel-harness/
 ├── harnesses/            declarative configs (loader-consumed)  🟢
 ├── specialists/          A2A LiteLLM specialist container (docker-build + contract-tested) 🟢
 ├── longrunning/          BAS + detonation Runtime tier (SIMULATED no-op, full-lifecycle) 🟢
-├── iac-cdk/              L3 CDK stacks (8; guardrail/identity/obs live) 🟢
+├── iac-cdk/              L3 CDK stacks (9; guardrail/identity/obs/vpc live) 🟢
 ├── iac-terraform/        deployable Terraform mirror (validate-clean)  🟢
-├── docs/                 ARCHITECTURE · BLUEPRINT · SETUP · HARNESSES · FIDELITY-REPORT
+├── docs/                 QUICKSTART · ARCHITECTURE · BLUEPRINT · SETUP · HARNESSES · GOVERNANCE · TESTING · FIDELITY-REPORT · ROADMAP
 ├── tests/                offline unit + config tests (1475)     🟢
 └── .github/workflows/    CI incl. a customer-name / secret gate
 ```

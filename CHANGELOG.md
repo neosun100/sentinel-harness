@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Client-facing explainer deck** — a dark, animated-SVG HTML presentation (26 slides, 16 inlined
+  animated SVGs) with a show view and a presenter view (per-slide speaker notes, timer, dual-window
+  sync), published to Cloudflare Pages: show <https://sentinel-harness-deck.pages.dev/> · presenter
+  <https://sentinel-harness-deck.pages.dev/presenter/>. Built entirely from this repo's public facts
+  (every figure aligns to `evidence/*.json`; honest about remaining limits). Linked from the README.
+
+### Changed
+- README: the **Scenarios & evidence** table now lists all 16 runnable scenarios (was ~8); added an
+  **Explainer deck** section; the documentation map now includes `docs/RELEASE-v0.2.0.md`.
+
 ## [0.2.0] — 2026-07-09
 
 Milestones M0–M7 all delivered. Sentinel-harness grows from a Layer-1 reference into
@@ -233,5 +246,6 @@ configuration on Amazon Bedrock AgentCore Harness.
 - Long-term (semantic) memory extraction is asynchronous (minutes-scale) — expected
   AgentCore behavior, documented in `SETUP.md` / `evidence/README.md`.
 
+[Unreleased]: https://github.com/neosun100/sentinel-harness/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/neosun100/sentinel-harness/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/neosun100/sentinel-harness/releases/tag/v0.1.0

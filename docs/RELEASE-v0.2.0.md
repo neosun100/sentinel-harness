@@ -63,6 +63,7 @@ Live scenarios (create harnesses, invoke, write `evidence/`) are 12-factor — s
 - Overview + status matrix: [`README.md`](../README.md)
 - Testing & make targets: [`docs/QUICKSTART.md`](QUICKSTART.md)
 - Self-audit / fidelity: [`docs/FIDELITY-REPORT.md`](FIDELITY-REPORT.md)
+- Explainer deck (live): show <https://sentinel-harness-deck.pages.dev/> · presenter <https://sentinel-harness-deck.pages.dev/presenter/>
 
 ---
 

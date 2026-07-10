@@ -129,6 +129,15 @@ Each scenario is runnable end-to-end and writes a result JSON to [`evidence/`](e
 | **Live verify (on-account)** | the deployed L3 foundation really holds the two hard security constraints on a live dev account | `live_verified: true` — VPC is a default-deny island (no IGW/NAT/public ingress), zero plaintext secrets (Cognito secret server-side), and the Guardrail live-blocked a fake AWS key + anonymized NAME/EMAIL — `evidence/live_verify_result.json` |
 | **Registry governance** | the AgentCore Registry control-plane dual-gate: `autoApproval=false` ⇒ a record is `DRAFT` (exists but NOT live), `submit_for_approval` moves it `DRAFT`→`PENDING_APPROVAL`, never live until a human approves | `closed: true` — offline walk against a fake control client (zero AWS); `registry_live` itself is live-verified (a real Registry + `soc-triage` record created and moved `DRAFT`→`PENDING_APPROVAL` on a dev account) — `evidence/registry_governance_result.json` |
 | **Live A2A on AgentCore Runtime** | an end-to-end specialist on real managed compute: `CreateAgentRuntime` → arm64 microVM (PUBLIC/A2A) → live A2A `message/send` → real Bedrock model | `closed: true` — **HTTP 200**, A2A JSON-RPC ok; the `cve-intel` container invoked the real Haiku model for a Log4Shell verdict (CVSS 10.0); torn down after the run — `evidence/live_a2a_runtime_result.json` (non-prod test account) |
+| **Agent Factory loop** (M1) | the north star — an agent that builds agents: meta-agent emits a spec → `harness_ops` really `create → READY → invoke → delete` | `closed: true` — a genuinely new harness reached READY and answered a real invoke — `evidence/agent_factory_loop_result.json` |
+| **Self-improve loop** (M2) | eval-driven self-improvement: an llm-judge scores → `update_harness` → `CreateHarnessEndpoint` promote, HITL-gated | weak answer scored, harness updated → v2, endpoint promoted — `evidence/self_improve_loop_result.json`, `evidence/endpoint_promote_result.json` |
+| **BAS detection-replay** (L2) | deterministic Sigma matcher replays attack techniques against detection rules to find blind spots | 4 techniques × rules → coverage 0.5, 2 blind spots surfaced — `evidence/bas_replay_result.json` |
+| **Egress control** (L3) | the private VPC is a default-deny island, proven from the live topology | no IGW / no NAT / no `0.0.0.0/0` route; PrivateLink-only — `evidence/egress_control_result.json` |
+| **Alert triage POC** (M5) | cross-linked mock world triaged end-to-end: SIEM → IOC enrich → asset blast-radius → HITL-gated ticket | correlated true-positive, ticket created — `evidence/alert_triage_poc_result.json` |
+| **Feedback loop** (M6) | disposition auto-feeds strategy: an FP batch auto-triggers whitelist optimization that provably preserves the TP + rule regeneration | auto-triggered, TP preserved, HITL-gated — `evidence/feedback_loop_result.json` |
+| **CVE-asset triage** (M5) | CVE → `nvd_lookup`+`epss_kev`/KEV → `asset_lookup` blast radius → structured CVETriage → HITL | Log4Shell → `web-01` affected, KEV-exploited, blast radius computed — `evidence/cve_asset_triage_result.json` |
+| **Detonation** (L2) | full `QUEUED → … → DESTROYED` microVM lifecycle + orchestrator — an **honest SIMULATED no-op** | sample-by-reference, sandbox-refused bad action, HITL-gated, always destroyed-after-use — `evidence/detonation_result.json` |
+| **Named supervisor** | loads `research-supervisor` from `harness.yaml`, wires it to a live Gateway (create→READY→delete on the GA API) | 🟢 live-only (Gateway proof: `evidence/gateway_lifecycle_result.json`) |
 
 ## 🧭 Design principles
 
@@ -179,6 +188,21 @@ Borrowed patterns (see [`docs/BLUEPRINT.md`](docs/BLUEPRINT.md)): supervisor→s
 | [`docs/FIDELITY-REPORT.md`](docs/FIDELITY-REPORT.md) | The self-audit — real vs. built vs. designed, with limits stated |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Delivered milestones (M0–M7) and what's next |
 | [`CHANGELOG.md`](CHANGELOG.md) | Versioned change history |
+| [`docs/RELEASE-v0.2.0.md`](docs/RELEASE-v0.2.0.md) | The v0.2.0 release notes (highlights, by-the-numbers, honest limits) |
+
+## 🎬 Explainer deck (client-facing)
+
+A dark, animated-SVG explainer deck that walks the whole story — problem → thesis → architecture →
+the agent-builds-agents north star → **live evidence** → how to operate (one-command deploy, CLI, no-lock-in) →
+runnable demos → benefits → roadmap. Built entirely from this repo's public facts (every number aligns to
+`evidence/*.json`; honest about what still needs a customer account / GA CFN type).
+
+- **Show deck** → <https://sentinel-harness-deck.pages.dev/> (`←/→` paginate · `F` fullscreen · `?p=N` jump · `P` → PDF)
+- **Presenter view** (per-slide speaker notes + timer + dual-window sync) → <https://sentinel-harness-deck.pages.dev/presenter/>
+
+26 slides · 16 inlined animated SVGs · a live A2A-on-Runtime walkthrough. Great for a 30-minute customer session.
+
+<div align="center"><a href="https://sentinel-harness-deck.pages.dev/"><img src="assets/deck/cover.png" width="720" alt="sentinel-harness explainer deck"/></a></div>
 
 ## 📁 Repo layout
 

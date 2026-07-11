@@ -18,12 +18,23 @@ and educational sample for **authorized, defensive** security operations.
 
 ## Development
 
+This repo uses [`uv`](https://docs.astral.sh/uv/) and a `Makefile` — the same
+toolchain as `docs/QUICKSTART.md`. The offline suite is hermetic (no venv to
+manage, no AWS, no network); `uv` builds the environment on the fly.
+
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e . pytest
 export SENTINEL_EXECUTION_ROLE_ARN="arn:aws:iam::000000000000:role/test"  # for offline tests
-pytest tests/ -q          # offline config-validation tests (no AWS calls)
+make test                 # full offline suite (hermetic via uv; no AWS calls)
+make lint                 # ruff over the Python sources
 ```
+
+Run `make lint` and `make test` before opening a PR — that pair is the CI gate.
+
+Under the hood `make test` runs the canonical hermetic invocation
+(`uv run --no-project --python 3.13 --with pytest --with hypothesis --with boto3 --with pyyaml --with . python -m pytest tests/ -q`);
+run it directly if you need to pass extra pytest flags. `hypothesis` is required —
+`tests/test_prop_*.py` are property-based and fail collection without it. To hack
+on the package in an editable environment, `uv sync` then `uv run pytest tests/ -q`.
 
 Live scenarios require real AWS credentials for a **non-production** account and a
 real execution role — see `docs/SETUP.md`.

@@ -148,7 +148,7 @@ is real.
 
 > **Root-cause correction on the invoke "gate":** the earlier `live_dataplane_gate_diagnosis.json`
 > conclusion ("service-side account gate") was **wrong**. `InvokeHarness` `AccessDenied` was the
-> **Isengard credential-vend session policy**; assuming a fresh in-account IAM role *directly*
+> **credential-vending session policy**; assuming a fresh in-account IAM role *directly*
 > (bypassing the vend layer) makes invoke work. A 10-minute discriminating test beat a 1M-token
 > inference sweep — verify, don't infer.
 

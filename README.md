@@ -97,10 +97,12 @@ Honest build status per capability — mirrors the self-audit.
 
 ```bash
 git clone https://github.com/neosun100/sentinel-harness && cd sentinel-harness
-pip install -e .          # Python 3.10+ ; installs the `sentinel` CLI
+pip install -e '.[test]'  # Python 3.10+ ; the `sentinel` CLI + test deps
+                          # (pytest, hypothesis, coverage). Plain `pip install -e .`
+                          # gives just the library + CLI, without the test deps.
 
-# offline tests need no AWS
-SENTINEL_EXECUTION_ROLE_ARN=arn:aws:iam::000000000000:role/test pytest tests/ -q   # 1698 passing
+# offline tests need no AWS (hermetic; the property tests require hypothesis)
+SENTINEL_EXECUTION_ROLE_ARN=arn:aws:iam::000000000000:role/test pytest tests/ -q
 
 # configure for live runs (12-factor — nothing hardcoded)
 export AWS_PROFILE=<your-non-prod-profile>          # never production
@@ -130,7 +132,7 @@ Each scenario is runnable end-to-end and writes a result JSON to [`evidence/`](e
 | **Registry governance** | the AgentCore Registry control-plane dual-gate: `autoApproval=false` ⇒ a record is `DRAFT` (exists but NOT live), `submit_for_approval` moves it `DRAFT`→`PENDING_APPROVAL`, never live until a human approves | `closed: true` — offline walk against a fake control client (zero AWS); `registry_live` itself is live-verified (a real Registry + `soc-triage` record created and moved `DRAFT`→`PENDING_APPROVAL` on a dev account) — `evidence/registry_governance_result.json` |
 | **Live A2A on AgentCore Runtime** | an end-to-end specialist on real managed compute: `CreateAgentRuntime` → arm64 microVM (PUBLIC/A2A) → live A2A `message/send` → real Bedrock model | `closed: true` — **HTTP 200**, A2A JSON-RPC ok; the `cve-intel` container invoked the real Haiku model for a Log4Shell verdict (CVSS 10.0); torn down after the run — `evidence/live_a2a_runtime_result.json` (non-prod test account) |
 | **Agent Factory loop** (M1) | the north star — an agent that builds agents: meta-agent emits a spec → `harness_ops` really `create → READY → invoke → delete` | `closed: true` — a genuinely new harness reached READY and answered a real invoke — `evidence/agent_factory_loop_result.json` |
-| **Self-improve loop** (M2) | eval-driven self-improvement: an llm-judge scores → `update_harness` → `CreateHarnessEndpoint` promote, HITL-gated | weak answer scored, harness updated → v2, endpoint promoted — `evidence/self_improve_loop_result.json`, `evidence/endpoint_promote_result.json` |
+| **Self-improve loop** (M2) | eval-driven self-improvement: an llm-judge scores → `update_harness` → `CreateHarnessEndpoint` promote, HITL-gated | weak answer scored 0.0, harness updated → v2; the single-run re-score was InvokeHarness-quota-throttled (HTTP 403 — an env limit, not a mechanism defect), so `CreateHarnessEndpoint` promotion is proven **separately** — `evidence/self_improve_loop_result.json`, `evidence/endpoint_promote_result.json`. (A later run drove the full weak→score→improve→re-score→veto→promote chain end-to-end with `closed:true` — `evidence/closed_loop_result.json`.) |
 | **BAS detection-replay** (L2) | deterministic Sigma matcher replays attack techniques against detection rules to find blind spots | 4 techniques × rules → coverage 0.5, 2 blind spots surfaced — `evidence/bas_replay_result.json` |
 | **Egress control** (L3) | the private VPC is a default-deny island, proven from the live topology | no IGW / no NAT / no `0.0.0.0/0` route; PrivateLink-only — `evidence/egress_control_result.json` |
 | **Alert triage POC** (M5) | cross-linked mock world triaged end-to-end: SIEM → IOC enrich → asset blast-radius → HITL-gated ticket | correlated true-positive, ticket created — `evidence/alert_triage_poc_result.json` |
@@ -171,7 +173,7 @@ Borrowed patterns (see [`docs/BLUEPRINT.md`](docs/BLUEPRINT.md)): supervisor→s
 - [x] **Detonation long-running tier** — full `QUEUED→…→DESTROYED` lifecycle state machine + `detonate_sample` orchestrator + scenario; honest SIMULATED no-op (sample-by-reference, sandbox-refused actions, HITL-gated, always destroyed after use). — `longrunning/detonation/`
 - [x] **Backend-pluggable data-plane tools** — `siem_query`/`asset_lookup`/`enrich_ioc`/`ops_query` gain a real stdlib-HTTP client behind a `*_LIVE` env (offline mock default; env-driven URL+bearer; failures→`upstream_error`, no silent fallback), proven against an in-process mock server. — `tools/`
 - [x] **Specialist container → ECR (live)** — the `cve-intel` A2A image really builds `linux/arm64` (AgentCore Runtime's required arch) and is **pushed to a real ECR repo** on a non-prod dev account (`sentinel-cve-intel:v1`, scan-on-push), plus a least-privilege `sentinel-runtime-exec` IAM execution role. — `specialists/cve-intel/`
-- [x] **Live A2A specialist on AgentCore Runtime** — 🟢 **live-validated** on a non-prod TEST account: `CreateAgentRuntime` provisioned a real `linux/arm64` microVM (`PUBLIC` net, `A2A` protocol) from the ECR image; a live A2A JSON-RPC `message/send` returned **HTTP 200** and the `cve-intel` specialist invoked the **real Bedrock Haiku model** (version-pinned id) to produce a structured Log4Shell verdict (CVSS 10.0) — `evidence/live_a2a_runtime_result.json`. Runtime was **torn down after the run** to stop compute billing. (On the primary dev account this same call is blocked by an Isengard account-level SCP — an org control, not a code gap.)
+- [x] **Live A2A specialist on AgentCore Runtime** — 🟢 **live-validated** on a non-prod TEST account: `CreateAgentRuntime` provisioned a real `linux/arm64` microVM (`PUBLIC` net, `A2A` protocol) from the ECR image; a live A2A JSON-RPC `message/send` returned **HTTP 200** and the `cve-intel` specialist invoked the **real Bedrock Haiku model** (version-pinned id) to produce a structured Log4Shell verdict (CVSS 10.0) — `evidence/live_a2a_runtime_result.json`. Runtime was **torn down after the run** to stop compute billing. (On the primary dev account this same call is blocked by an org-level SCP — an org control, not a code gap.)
 - [ ] Deploy the CDK stack end-to-end on a live account — incl. the Registry custom-resource path, which still needs the `@aws-sdk/client-bedrock-agentcore-control` client bundled into the Lambda asset (the Registry control-plane API itself is already live-verified via `registry_live.py`); wire the `*_LIVE` tool seams to a real SIEM/asset/IOC/ticketing backend.
 
 ## 📚 Documentation map

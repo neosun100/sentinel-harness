@@ -3,7 +3,7 @@
   "target": "AgentCore Evaluate — managed LLM-as-a-judge Evaluator (SESSION level)",
   "account": "000000000000",
   "region": "us-east-1",
-  "note_account": "real non-prod dev account id redacted to the 000000000000 placeholder per public-repo policy; created live on a non-prod Isengard dev account.",
+  "note_account": "real non-prod dev account id redacted to the 000000000000 placeholder per public-repo policy; created live on a non-prod dev account.",
   "method": "Live CreateEvaluator against the bedrock-agentcore-control plane, then GetEvaluator to confirm ACTIVE. The evaluator is a managed LLM-as-a-judge scoped to SESSION level with a numerical 0.0/0.5/1.0 rating scale and safety-aware CVE-triage instructions.",
   "live_verified": true,
   "resources": {

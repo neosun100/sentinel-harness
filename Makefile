@@ -17,7 +17,7 @@ SHELL := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 
 # The canonical offline test invocation (no /tmp venv; hermetic via uv).
-PYTEST := uv run --no-project --python 3.13 --with pytest --with boto3 --with pyyaml --with . python -m pytest
+PYTEST := uv run --no-project --python 3.13 --with pytest --with hypothesis --with boto3 --with pyyaml --with . python -m pytest
 
 .DEFAULT_GOAL := help
 .PHONY: help ci test lint synth deploy deploy-endpoints seed-registry create-harnesses \
@@ -58,7 +58,7 @@ test: ## Run the offline test suite (hermetic, no AWS).
 lint: ## Static-check the Python with ruff.
 	uv run --no-project --python 3.13 --with ruff ruff check .
 
-synth: ## CDK synth the 8 Layer-3 stacks locally (offline, no deploy).
+synth: ## CDK synth the 9 Layer-3 stacks locally (offline, no deploy).
 	cd iac-cdk && npx cdk synth
 
 deploy: ## Deploy the FREE-TIER Layer-3 foundation (CDK; confirms account+region).
@@ -78,7 +78,7 @@ smoke: ## Run the tests/smoke acceptance suite (offline; SENTINEL_SMOKE_LIVE=1 f
 
 reset: destroy ## Alias for destroy — tear the foundation back down.
 
-destroy: ## Tear down all 8 sentinel-* CDK stacks (confirms account+region).
+destroy: ## Tear down all 9 sentinel-* CDK stacks (confirms account+region).
 	deploy/destroy.sh
 
 demo: ## Run the narrated end-to-end platform tour (offline).

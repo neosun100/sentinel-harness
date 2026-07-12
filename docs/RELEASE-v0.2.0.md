@@ -1,6 +1,6 @@
 # sentinel-harness v0.2.0 — SecOps agents as configuration, now live on AgentCore Runtime
 
-`sentinel-harness` is a reference implementation of production security-operations agents built as **configuration** — model, prompt, tools, skills, memory, limits — on [Amazon Bedrock AgentCore Harness](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness.html); you declare the agent and AWS runs the loop. This release delivers milestones **M0–M7** end-to-end: the agent-builds-agents north-star loop runs, a specialist runs on **real AgentCore Runtime** with live end-to-end A2A against a real Bedrock model, the AgentCore **Registry** control-plane governance walk is live-verified, and a dual-track IaC foundation is live-deployed on a non-production dev account. The whole thing is anchored by **1475 offline tests** (+5 skipped when optional deps are absent) across 76 test files — deterministic, hermetic, zero AWS by default — with CI green at `ae3ab6a`.
+`sentinel-harness` is a reference implementation of production security-operations agents built as **configuration** — model, prompt, tools, skills, memory, limits — on [Amazon Bedrock AgentCore Harness](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness.html); you declare the agent and AWS runs the loop. This release delivers milestones **M0–M7** end-to-end: the agent-builds-agents north-star loop runs, a specialist runs on **real AgentCore Runtime** with live end-to-end A2A against a real Bedrock model, the AgentCore **Registry** control-plane governance walk is live-verified, and a dual-track IaC foundation is live-deployed on a non-production dev account. The whole thing is anchored by **1726 offline tests** (+5 skipped when optional deps are absent) across 88 test files — deterministic, hermetic, zero AWS by default — with CI green at `ae3ab6a`.
 
 ## Highlights
 
@@ -15,7 +15,7 @@
 
 | Metric | Count |
 |---|--:|
-| Offline tests passing (+5 skipped w/o optional deps) | 1475 |
+| Offline tests passing (+5 skipped w/o optional deps) | 1726 |
 | Test files | 76 |
 | Runnable scenarios | 16 |
 | Committed evidence JSON artifacts | 23 |
@@ -44,14 +44,14 @@ Stated plainly, consistent with the README status matrix (🟢/🟡/🟠) and `d
 - **No full `cdk deploy` of the Registry/Runtime stacks yet.** Those stacks use raw `AWS::BedrockAgentCore::*` CFN types that are not GA — they synth clean (tsc + `cdk synth`) but a live `cdk deploy` fails until the CFN types are registered, and the Registry custom-resource path additionally needs the `@aws-sdk/client-bedrock-agentcore-control` client bundled into the Lambda asset. The Registry and Runtime control-plane APIs themselves are separately live-verified (see above); no live CDK deploy of these two stacks has run.
 - **Real customer backends sit behind the `*_LIVE` seams.** Wiring `siem_query` / `asset_lookup` / `enrich_ioc` / `ops_query` (and ticketing) to a real SIEM / asset / IOC / ticketing backend requires a customer account and credentials; the shipped default is the offline mock.
 - **Detonation is a simulated no-op.** No real malware, VM, or network is ever touched — it is a full-lifecycle orchestrator over sandbox-refused, HITL-gated, sample-by-reference actions.
-- **`CreateAgentRuntime` is SCP-blocked on the primary dev account.** An org-level Isengard SCP blocks the call there — an account control, not a code gap; the live A2A run above was executed on a separate non-prod test account.
+- **`CreateAgentRuntime` is SCP-blocked on the primary dev account.** An org-level SCP blocks the call there — an account control, not a code gap; the live A2A run above was executed on a separate non-prod test account.
 
 ## Get started
 
 ```bash
 git clone https://github.com/neosun100/sentinel-harness && cd sentinel-harness
 pip install -e .     # Python 3.10+ ; installs the `sentinel` CLI
-make test            # 1475 offline tests — deterministic, no AWS, seconds
+make test            # 1726 offline tests — deterministic, no AWS, seconds
 make demo            # narrated L1→L4 platform tour, fully offline
 ```
 

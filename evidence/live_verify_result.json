@@ -3,7 +3,7 @@
   "target": "sentinel-harness L3 foundation (deployed)",
   "account": "000000000000",
   "region": "us-east-1",
-  "note_account": "real dev account id redacted to the 000000000000 placeholder per public-repo policy; verification was run on a non-prod Isengard dev account.",
+  "note_account": "real dev account id redacted to the 000000000000 placeholder per public-repo policy; verification was run on a non-prod dev account.",
   "method": "read-only on-account verification against live AWS APIs (sts/describe/list/get-template/get-guardrail + read-only OIDC/JWKS fetch + apply-guardrail evaluation with harmless fake data). No create/modify/delete/put/attach performed.",
   "live_verified": true,
   "stacks_all_complete": {

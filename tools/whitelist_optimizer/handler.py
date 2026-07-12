@@ -399,6 +399,14 @@ def _clause_matches(ev: Dict[str, Any], field: str, match_type: str, value: str)
     if match_type == MATCH_DOMAIN_EXACT:
         return raw.lower().rstrip(".") == value.lower().rstrip(".")
     if match_type == MATCH_DOMAIN_SUFFIX:
+        # Label-boundary anchored: a domain_suffix is a shared PARENT of >= 2 FP
+        # domains (e.g. "example.com" from a.example.com + b.example.com), so a
+        # known-good match must be the apex itself OR a strict subdomain — never a
+        # cross-label-boundary lexical match like "evilexample.com". This MUST stay
+        # in lock-step with the emitted Sigma clause in `_sigma_filter_yaml` (which
+        # emits an OR of `|endswith: '.suffix'` and an exact `: 'suffix'`), or the
+        # tool would certify a whitelist as TP-preserving while the artifact it emits
+        # actually suppresses that true positive.
         dv = raw.lower().rstrip(".")
         sv = value.lower().rstrip(".")
         return dv == sv or dv.endswith("." + sv)
@@ -425,10 +433,17 @@ def _sigma_filter_yaml(field: str, match_type: str, value: str, base_condition: 
     elif match_type == MATCH_DOMAIN_EXACT:
         key, val = field, value
     elif match_type == MATCH_DOMAIN_SUFFIX:
-        # If every value is a strict subdomain, anchor on a leading dot for a
-        # label boundary; else emit the bare suffix so the apex still matches.
+        # A domain_suffix is a shared PARENT of >= 2 FP domains, so every FP is a
+        # STRICT subdomain of it (the apex itself is never in the FP cohort — if all
+        # FPs were identical this would be domain_exact, not domain_suffix). The
+        # known-good filter must therefore match strict subdomains ONLY, anchored on
+        # a label boundary. A bare `|endswith: 'example.com'` also matches
+        # "evilexample.com" (a cross-label-boundary lexical match) and would suppress
+        # that true positive — the bug this avoids. Anchor with a leading dot so the
+        # emitted clause matches EXACTLY the strict-subdomain half of
+        # `_clause_matches` (`dv.endswith("." + sv)`).
         key = f"{field}|endswith"
-        val = value
+        val = f".{value.lower().rstrip('.')}"
     elif match_type == MATCH_CIDR:
         key, val = f"{field}|cidr", value
     else:  # pragma: no cover - defensive

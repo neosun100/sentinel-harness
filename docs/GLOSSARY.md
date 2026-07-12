@@ -94,7 +94,7 @@ and **SecOps / simulation** vocabulary. Where a term maps to code, the path is g
 - **egress control** — the private-VPC default-deny topology: no IGW, no NAT, no `0.0.0.0/0`
   route, PrivateLink-only (endpoints cost-gated off). See `iac-cdk/lib/network-stack.ts`,
   `scenario_egress_control.py`.
-- **evidence** — the account-scrubbed JSON each scenario drops into `evidence/` (23 artifacts):
+- **evidence** — the account-scrubbed JSON each scenario drops into `evidence/` (30 artifacts):
   the reproducible proof behind every claim. Account ids scrubbed to `000000000000`.
 - **CVE / EPSS / KEV / ATT&CK / Sigma / YARA / IOC** — standard defensive references:
   CVE = a catalogued vulnerability; EPSS = exploit-prediction score; KEV = CISA

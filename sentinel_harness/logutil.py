@@ -79,7 +79,7 @@ class _JsonFormatter(logging.Formatter):
 
 
 def _truthy(val: Optional[str]) -> bool:
-    return bool(val) and val.strip().lower() in _TRUTHY
+    return val is not None and val.strip().lower() in _TRUTHY
 
 
 def configure_logging(

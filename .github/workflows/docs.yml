@@ -63,8 +63,8 @@ jobs:
           echo "----- rendered pages -----"; ls site/sentinel_harness/
 
       - name: Upload Pages artifact
-        # actions/upload-pages-artifact v3.0.1
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
+        # actions/upload-pages-artifact v5.0.0 (Node 24 — clears the Node 20 deprecation warning)
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
         with:
           path: site
 
@@ -83,5 +83,5 @@ jobs:
     steps:
       - name: Deploy
         id: deployment
-        # actions/deploy-pages v4.0.5
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e
+        # actions/deploy-pages v5.0.0 (Node 24 — clears the Node 20 deprecation warning)
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128

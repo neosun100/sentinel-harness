@@ -383,13 +383,16 @@ def _assert_safe_url(url: str) -> None:
     """Refuse an outbound URL that is not plain HTTP(S) to a routable host.
 
     SSRF/exfiltration hardening applied before ANY live request opens: enforce a
-    scheme allowlist (https/http only) and REFUSE link-local, loopback-to-cloud
-    metadata, and other non-routable targets — notably the cloud metadata
-    endpoint ``169.254.169.254`` and ``file://``. Raises ``RuntimeError`` on a
+    scheme allowlist (https/http only) and REFUSE link-local (incl. the cloud
+    metadata endpoint ``169.254.169.254``), multicast, reserved and unspecified
+    targets, plus non-HTTP schemes like ``file://``. Raises ``RuntimeError`` on a
     rejected URL so the handler maps it to ``upstream_error`` (never a silent
     fallback). Hostnames that are not IP literals are allowed through (DNS is not
     resolved here — that is the runtime egress policy's job); only IP-literal
     hosts are range-checked, which deterministically blocks the metadata IP.
+    Loopback (127.0.0.0/8, ::1) is DELIBERATELY allowed: an on-box / self-hosted
+    threat-intel backend is a legitimate operator choice (and is what the live-test
+    mock server binds to). This matches siem_query's guard exactly.
     """
     parts = urlsplit(url)
     scheme = parts.scheme.lower()
@@ -407,9 +410,10 @@ def _assert_safe_url(url: str) -> None:
         ip = ipaddress.ip_address(host)
     except ValueError:
         return  # not an IP literal — leave DNS-name egress to the network policy
+    # Loopback is deliberately NOT blocked (on-box backend + the live-test mock
+    # server bind there); the SSRF threat we care about is metadata/link-local.
     if (
         ip.is_link_local          # 169.254.0.0/16 (incl. 169.254.169.254) & fe80::/10
-        or ip.is_loopback         # 127.0.0.0/8, ::1
         or ip.is_multicast
         or ip.is_reserved
         or ip.is_unspecified      # 0.0.0.0, ::
@@ -441,6 +445,9 @@ def _fetch_live(indicators: List[str]) -> Dict[str, Dict[str, Any]]:
             "ENRICH_IOC_LIVE=1 but ENRICH_IOC_URL is not set; no backend to "
             "query. Unset ENRICH_IOC_LIVE to use the offline mock reputation."
         )
+    # SSRF guard: refuse a non-HTTP(S) scheme or a metadata/link-local/unspecified
+    # target BEFORE any socket opens. Raises RuntimeError (mapped to upstream_error).
+    _assert_safe_url(url)
 
     payload = json.dumps({"indicators": indicators}).encode("utf-8")
     headers = {

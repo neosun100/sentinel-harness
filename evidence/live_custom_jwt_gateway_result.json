@@ -3,7 +3,7 @@
   "target": "AgentCore Gateway with CUSTOM_JWT authorizer (Cognito OIDC, M2M client_credentials)",
   "account": "000000000000",
   "region": "us-east-1",
-  "note_account": "real non-prod dev account id redacted to the 000000000000 placeholder per public-repo policy; created and exercised live on a non-prod Isengard dev account.",
+  "note_account": "real non-prod dev account id redacted to the 000000000000 placeholder per public-repo policy; created and exercised live on a non-prod dev account.",
   "method": "Live create + invoke against real AWS control/data planes. Created a Cognito user pool + hosted domain + resource server (custom scope sentinel-gw/invoke) + a confidential machine (client_credentials) app client; created a real AgentCore Gateway (protocolType=MCP, authorizerType=CUSTOM_JWT) whose customJWTAuthorizer.discoveryUrl points at the Cognito OIDC .well-known document and allowedClients pins the machine client id; minted a real RS256 access token via the client_credentials grant; then POSTed a JSON-RPC tools/list to the live gateway MCP endpoint three ways to prove enforcement.",
   "live_verified": true,
   "resources": {

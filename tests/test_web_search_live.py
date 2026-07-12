@@ -257,3 +257,41 @@ def test_live_flag_unset_returns_stub(monkeypatch):
     res = web_search.handler({"query": "beacon c2"}, None)
     assert res["ok"] is True
     assert res["source"] == "stub"
+
+
+# --------------------------------------------------------------------------- #
+# SSRF guard: metadata IP must never reach urlopen; safe URLs must pass       #
+# --------------------------------------------------------------------------- #
+def test_ssrf_metadata_ip_never_reaches_urlopen(monkeypatch):
+    """Guard must fire BEFORE urlopen: the spy raising proves it was never reached.
+
+    A prior implementation lacking the guard would produce upstream_error too
+    (connection refused/timeout) but would still reach urlopen first. The spy
+    distinguishes "guard fired early" from "network failure after reaching urlopen".
+    """
+    monkeypatch.setenv("WEB_SEARCH_LIVE", "1")
+    monkeypatch.setenv("WEB_SEARCH_ENDPOINT", "http://169.254.169.254/")
+
+    reached = {"urlopen": False}
+
+    def _boom(*args, **kwargs):  # pragma: no cover - must never run
+        reached["urlopen"] = True
+        raise AssertionError(
+            "SSRF guard did not fire: urlopen was reached for the metadata IP"
+        )
+
+    monkeypatch.setattr(web_search.urllib.request, "urlopen", _boom)
+    res = web_search.handler({"query": "beacon c2"}, None)
+    assert reached["urlopen"] is False, "urlopen must not be reached for a blocked URL"
+    assert res["ok"] is False
+    assert res["error"] == "upstream_error"
+    assert "results" not in res
+
+
+@pytest.mark.parametrize("safe_url", [
+    "https://search.example.internal/api",
+    "http://127.0.0.1:8080/search",
+])
+def test_ssrf_assert_safe_url_allows_safe_targets(safe_url):
+    """_assert_safe_url must not raise for a normal https endpoint or loopback."""
+    web_search._assert_safe_url(safe_url)  # must not raise

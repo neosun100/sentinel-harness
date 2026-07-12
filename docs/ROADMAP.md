@@ -51,8 +51,8 @@ live) · 🟡 skeleton / partial · 🔴 gap.
 | `specialists/` | `cve-intel` (docker-build + live-validated on AgentCore Runtime) + `attack-mapper` / `threat-hunt` (real graph/plan builders) | 🟩 | `adversarial-reviewer` still to add |
 | `longrunning/` | `bas-runner` (BAS case-gen + detection-replay) + `detonation` (full simulated microVM lifecycle + orchestrator) | 🟩 | both built + tested; detonation stays an honest SIMULATED no-op |
 | `iac-cdk/lib/` | 9 synth-green stacks — `gateway` / `registry` / `memory` / `network` / `identity` / `guardrail` / `observability` / `harness` / `runtime` (+ `iam`); `iac-terraform/` mirror is `terraform validate`-clean | ✅ | `guardrail` / `identity` / `observability` LIVE-deployed (us-east-1); the Registry + `runtime` custom-resource/raw-CfnResource stacks synth clean but fail on deploy until their CFN types are GA (both control-plane APIs are separately live-verified — Registry via `registry_live.py`, `CreateAgentRuntime` via a real arm64 microVM that served a live A2A call, HTTP 200, real Bedrock model, on a non-prod test account, then torn down — `evidence/live_a2a_runtime_result.json`) |
-| `tests/` | 76 files, **1475 offline passing** (+5 skipped) | ✅ | add tests with each new module |
-| `evidence/` | 22 evidence sets | ✅ | add one per milestone |
+| `tests/` | 76 files, **1726 offline passing** (+6 skipped) | ✅ | add tests with each new module |
+| `evidence/` | 30 evidence sets | ✅ | add one per milestone |
 
 ### 0.3 Fit score (vs. a full three-layer SecOps agent program)
 
@@ -181,8 +181,8 @@ Each milestone gives: **goal / files / reused APIs / acceptance (live evidence) 
 Suggest one feature branch per milestone.
 
 ### M0 — Environment & baseline reproduction (half a day)
-**Goal:** on a fresh machine, get all 1475 offline tests green and reproduce ≥1 live scenario.
-- [ ] `uv sync` + `uv run pytest -q` → 1475 passing (+5 skipped) (offline).
+**Goal:** on a fresh machine, get all 1726 offline tests green and reproduce ≥1 live scenario.
+- [ ] `uv sync` + `uv run pytest -q` → 1726 passing (+6 skipped) (offline).
 - [ ] Configure `SENTINEL_EXECUTION_ROLE_ARN` / `SENTINEL_REGION` / `AWS_PROFILE` (non-prod) — see `docs/SETUP.md`.
 - [ ] Run `scenarios/scenario_cve_triage.py`; compare `evidence/cve_triage_result.json` shape.
 - [ ] Run `scenarios/scenario_hitl_resume.py`; reproduce pause→approve→resume.
@@ -419,7 +419,7 @@ hand-off reuses the live-capable M1/M2 engine (driven offline here, labeled a wi
       (`make deploy`, cost note, `make destroy`) + the no-lock-in export. — `docs/QUICKSTART.md`
 - [x] `tests/smoke/`: offline acceptance suite (default offline; `SENTINEL_SMOKE_LIVE=1` opt-in for live). — `tests/smoke/`
 
-**Acceptance:** `make test` → 1475 offline tests green; `make seed-registry` → dual-gate `ok`;
+**Acceptance:** `make test` → 1726 offline tests green; `make seed-registry` → dual-gate `ok`;
 `make create-harnesses` (DRY_RUN=1) → 8 harnesses validate offline with zero AWS; `sentinel export` → valid
 compilable Strands Python; `make smoke` → the offline acceptance suite green. A fresh non-prod account can then
 run `make deploy` (free-tier foundation) and the live scenarios; `make destroy` tears it all down.
@@ -433,7 +433,7 @@ run `make deploy` (free-tier foundation) and the live scenarios; `make destroy` 
 > self-improvement loop are asserted but not gated, produced, or exercised. M8–M10 + the offline
 > parts of M11/M12 are fully doable now with zero external dependencies; the `[EXTERNAL]` items
 > need a non-prod account with `InvokeHarness`/`CreateAgentRuntime` quota (prior runs hit HTTP 403
-> throttling + an Isengard SCP) and incur real cost — their code + a gated scenario ship now, the
+> throttling + an org-level SCP) and incur real cost — their code + a gated scenario ship now, the
 > live run is pending budget/quota.
 
 ### M8 — Enforce the quality claims in CI (offline) — ✅ DELIVERED
@@ -473,7 +473,7 @@ Chain the proven mechanisms into one autonomous run; harden so it can never prom
 - [x] Regression guard — refuses to promote a revision scoring below the incumbent best. — `sentinel_harness/loop_safety.py::regression_guard`
 - [x] Multi-objective judge with a hard safety veto (any safety failure ⇒ `pass=false` regardless of aggregate). — `loop_safety.apply_safety_veto`
 - [x] Provenance ledger (hash-chained, append-only) + expanded eval datasets (hard negatives, ambiguous severity, safety traps) + drift-triggered regeneration on eval-score decay. — `sentinel_harness/provenance.py`, `eval/datasets/`, `feedback.detect_score_decay`
-- [x] `[EXTERNAL]` **fully autonomous closed loop — PROVEN live (`closed: true`).** A deliberately weak agent scored 0.0 by an INDEPENDENT judge harness → `update_harness` to a STRONG prompt (new version) → re-scored 1.0 → cleared the real `loop_safety.apply_safety_veto` (no safety dim failed) AND `regression_guard` (1.0 > 0.0, ≥ 0.7 bar) → HITL-approve → `CreateHarnessEndpoint` (endpoint live) → reject-path withholds promotion → teardown. Every build/invoke/score/update/promote/delete is real. — `evidence/closed_loop_result.json`. **Root-cause of the earlier "gate" was WRONG:** `InvokeHarness` `AccessDenied` was the **Isengard credential-vend session policy**, not a service-side account gate — bypassed by assuming a fresh in-account IAM role directly (see `evidence/live_dataplane_gate_diagnosis.json`, superseded). **Bonus live finding:** a correct Log4Shell answer carries `${jndi[:]ldap[://]}`, which an edge **WAF** blocks (HTML 403); the fix is standard IOC **defanging** of judge inputs.
+- [x] `[EXTERNAL]` **end-to-end closed loop — PROVEN live (`closed: true`); runner-orchestrated (agent-authored orchestration is future work).** A deliberately weak agent scored 0.0 by an INDEPENDENT judge harness → `update_harness` to a STRONG prompt (new version) → re-scored 1.0 → cleared the real `loop_safety.apply_safety_veto` (no safety dim failed) AND `regression_guard` (1.0 > 0.0, ≥ 0.7 bar) → **human-in-the-loop approve** → `CreateHarnessEndpoint` (endpoint live) → reject-path withholds promotion → teardown. Every build/invoke/score/update/promote/delete is real; the loop *decisions* are driven by the scenario runner (the self-improving harness calling `run_evaluation` over a Gateway to author its own iterations remains future work — see `evidence/closed_loop_result.json` honesty note). — `evidence/closed_loop_result.json`. **Root-cause of the earlier "gate" was WRONG:** `InvokeHarness` `AccessDenied` was the **credential-vending session policy** of the internal account-management system, not a service-side account gate — bypassed by assuming a fresh in-account IAM role directly (see `evidence/live_dataplane_gate_diagnosis.json`, superseded). **Bonus live finding:** a correct Log4Shell answer carries a raw JNDI/LDAP exploit string, which an edge **WAF** blocks (HTML 403); the fix is standard IOC **defanging** of judge inputs.
 
 **Acceptance:** M8/M9/M10-offline + M11/M12 offline items land with the suite green under a coverage
 gate + hard lint + supply-chain scans; each `[EXTERNAL]` item ships buildable code + an offline-default
@@ -517,7 +517,7 @@ if eval.score >= criteria:
 ---
 
 ## 6. Testing & acceptance charter
-- **offline**: every new module gets `tests/test_*.py` (mock AWS); keep `uv run pytest -q` green (now 1475, +5 skipped, only grows).
+- **offline**: every new module gets `tests/test_*.py` (mock AWS); keep `uv run pytest -q` green (now 1726, +6 skipped, only grows).
 - **config parity**: every new `harness.yaml` must pass `factory.provision_fleet(dry_run=True)` + `test_config_validation.py`.
 - **live evidence**: each milestone runs one real call, drops `evidence/<milestone>_result.json` + `.log`.
 - **governance**: each new tool keeps `registry.governance_check().ok == True`.

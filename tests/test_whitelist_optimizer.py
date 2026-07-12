@@ -74,7 +74,40 @@ def test_cdn_domain_suffix_when_subdomains_differ():
     assert r["whitelist"]["match_type"] == "domain_suffix"
     assert r["whitelist"]["fields"] == {"dst_domain": "assets.example.com"}
     assert r["suppressed_count"] == 2
-    assert "dst_domain|endswith: 'assets.example.com'" in r["sigma_filter_yaml"]
+    # The emitted clause is anchored on a LABEL BOUNDARY (leading dot), matching the
+    # guard's strict-subdomain semantics. A bare `endswith: 'assets.example.com'`
+    # would also match a cross-label-boundary lookalike (e.g. "evilassets.example.com"
+    # -> no; but "xassets.example.com" style), so we require the dotted form.
+    assert "dst_domain|endswith: '.assets.example.com'" in r["sigma_filter_yaml"]
+
+
+def test_domain_suffix_does_not_suppress_cross_boundary_tp():
+    """TP-safety regression (audit finding whitelist-endswith-broader-than-tp-guard):
+    FPs a.example.com + b.example.com yield suffix 'example.com'. A bare
+    `endswith: 'example.com'` would ALSO match the true positive 'evilexample.com'
+    and silently suppress it, while the tool's own TP guard (dot-anchored) judged
+    that TP safe — the tool would certify a whitelist that suppresses a TP. The
+    emitted clause must be dot-anchored ('.example.com') so it does NOT match
+    'evilexample.com'. This asserts the emitted artifact agrees with the guard."""
+    ev = {
+        "rule_name": "Beacon to C2",
+        "fp_events": [
+            {"alert_id": "a1", "dst_domain": "a.example.com"},
+            {"alert_id": "a2", "dst_domain": "b.example.com"},
+        ],
+        "true_positives": [
+            {"alert_id": "tp1", "dst_domain": "evilexample.com"},
+        ],
+    }
+    r = optimize(ev)
+    # The tool must not have emitted a clause that suppresses the TP.
+    if r.get("whitelist") is not None:
+        yaml = r["sigma_filter_yaml"]
+        # dotted anchor present, bare suffix absent -> evilexample.com is NOT matched
+        assert "dst_domain|endswith: '.example.com'" in yaml
+        assert "dst_domain|endswith: 'example.com'" not in yaml
+        # and the tool must report it preserved the TP
+        assert r["suppressed_count"] == 2  # only the 2 FPs, never the TP
 
 
 def test_domain_suffix_of_only_tld_is_rejected():

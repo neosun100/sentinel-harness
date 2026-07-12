@@ -65,7 +65,7 @@ jobs:
       - name: Attest SLSA build provenance for the artifacts
         # Keyless (Sigstore) provenance over the built dists — verifiable later with
         # `gh attestation verify dist/<file> --repo <owner>/<repo>`.
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: "dist/*"
 
@@ -82,7 +82,7 @@ jobs:
           echo "Extracted $(wc -l < release-notes.md) lines for $VERSION"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body_path: release-notes.md
           files: |
@@ -92,7 +92,7 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
 
       - name: Upload dist for the publish job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/*
@@ -111,7 +111,7 @@ jobs:
       id-token: write        # OIDC token exchanged for the PyPI upload — no stored token
     steps:
       - name: Download built dists
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist

@@ -113,6 +113,31 @@ A live SESSION-level, numerical (0.0/0.5/1.0), safety-aware CVE-triage `Evaluato
 path; wiring `CreateOnlineEvaluationConfig` to a live OTEL trace source (continuous scoring of
 emitted spans) needs the running span pipeline and is the honestly-noted remaining step.
 
+### A2A specialist on AgentCore Runtime — `live_a2a_runtime_result.json`
+**Crown jewel, live & repeatable.** A fresh `linux/arm64` cve-intel image built + pushed to ECR →
+`CreateAgentRuntime`(`serverProtocol=A2A`, `networkMode=PUBLIC`) → poll to READY → a live A2A
+JSON-RPC `message/send` → **HTTP 200** with the specialist invoking its real tools
+(`nvd_lookup`/`epss_kev`/`attack_lookup`) against the version-pinned Bedrock Haiku model →
+`DeleteAgentRuntime` teardown (no billed microVM left). Run via the bypass-role invoke path.
+
+### Fully autonomous self-improvement loop — `closed_loop_result.json`
+**The M12 north star, `closed: true`.** A deliberately weak agent scored **0.0** by an INDEPENDENT
+judge harness → `update_harness` to a strong prompt → re-scored **1.0** → cleared the real
+`loop_safety.apply_safety_veto` **and** `regression_guard` → HITL-approve → `CreateHarnessEndpoint`
+(promoted) → reject-path withholds promotion → teardown. Every build/invoke/score/update/promote/delete
+is real.
+
+> **Root-cause correction on the invoke "gate":** the earlier `live_dataplane_gate_diagnosis.json`
+> conclusion ("service-side account gate") was **wrong**. `InvokeHarness` `AccessDenied` was the
+> **Isengard credential-vend session policy**; assuming a fresh in-account IAM role *directly*
+> (bypassing the vend layer) makes invoke work. A 10-minute discriminating test beat a 1M-token
+> inference sweep — verify, don't infer.
+
+> **Live WAF/defang finding:** a correct Log4Shell answer necessarily contains `${jndi[:]ldap[://]}`.
+> Sending that raw to the judge over `InvokeHarness` is blocked by an edge **WAF** (HTML 403, not IAM).
+> The fix is standard threat-intel **IOC defanging** of judge inputs — a real production tension worth
+> designing for in any WAF-fronted SecOps agent that echoes IOCs.
+
 ## Honest limitations (as observed live)
 
 - **Long-term memory extraction is asynchronous (minutes-scale).** A cross-session

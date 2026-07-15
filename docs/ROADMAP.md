@@ -481,6 +481,62 @@ gate + hard lint + supply-chain scans; each `[EXTERNAL]` item ships buildable co
 
 ---
 
+## 4c. World-class depth (M13) — quantified proof · full-domain eval · adoption
+
+> Theme: **the capabilities are done; make them measurably-best, evaluable everywhere,
+> and adoptable in minutes.** All offline, zero external dependency, purely additive
+> (no live-validated code touched — the diff is +3642/-1). Each unit ships tests +
+> evidence and keeps the suite green.
+
+### M13 — Track A/B/C/D world-class layer — ✅ DELIVERED (offline)
+- [x] **Benchmark model** — deterministic cost/latency/ops comparison of AgentCore Harness
+      vs raw-Bedrock-DIY vs self-hosted EKS over a workload; the "Runtime billing advantage"
+      as a reproducible number (managed = cheapest, ~88% below a standing cluster on a bursty
+      workload; model-token cost identical across modes stated as the honesty caveat). A
+      property test caught a real cent-level rounding drift; fixed at source. —
+      `sentinel_harness/benchmark.py`, `benchmark_models.py`, `scenarios/scenario_benchmark.py`,
+      `evidence/benchmark_result.json` + `evidence/benchmark_report.md`
+- [x] **Full-domain golden datasets** — evaluation extended 2 → 5 domains: alert_triage /
+      attack_path / feedback_loop golden sets (26 rows each, rich M12 schema: category /
+      disposition / safety_trap), authored by a parallel author+independent-reviewer workflow;
+      a generic registry-driven validator pins schema/hygiene/mix. —
+      `eval/datasets/{alert_triage,attack_path,feedback_loop}_golden.jsonl`,
+      `tests/test_eval_datasets_domains.py`
+- [x] **Deep enterprise world** — a 45-host, five-tier fictional enterprise producing the exact
+      exposure-surface shape `build_attack_paths` consumes; integration-tested against the REAL
+      reasoner (finds three planted chains → crown-jewel db / domain controller / secrets store,
+      no over-claim from the patched bastion). Kept SEPARATE from the size-capped canonical world. —
+      `mockdata/enterprise.py`, `tests/test_enterprise_world.py`
+- [x] **All-domain offline scorer + baseline** — a deterministic assertion-grounding scorer with a
+      hard safety gate (safety-trap rows force-fail unless the answer refuses), calibrated so golden
+      references clear the 0.7 bar (0.73–0.89 mean) while wrong answers score 0. Scenario scores all
+      5 domains + a wrong control and asserts the gap + gate. The live LLM-judge (`run_evaluation`)
+      stays authoritative; this is the reproducible CI floor. —
+      `sentinel_harness/eval_datasets.py`, `scenarios/scenario_eval_all_domains.py`,
+      `evidence/eval_all_domains_result.json`
+- [x] **Compliance control mapping** — 18 capability anchors mapped to SOC 2 / ISO 27001:2022 /
+      NIST CSF 2.0, with a test that fails the build if any cited anchor stops existing (the doc
+      cannot drift into aspirational claims). Explicitly NOT a certification. —
+      `docs/COMPLIANCE.md`, `tests/test_compliance_mapping.py`
+- [x] **Plug-and-play connectors** — the `*_LIVE` seams upgraded from a generic POST to named
+      backend adapters (Splunk / Elasticsearch / OpenSearch / ServiceNow / Jira): pure translators
+      (no network — deterministic, contract-tested), wired into `siem_query` behind
+      `SIEM_QUERY_CONNECTOR` (backward compatible), proven end-to-end against an in-process mock
+      Splunk. — `sentinel_harness/connectors/`, `tools/siem_query/handler.py` (wiring),
+      `tests/test_connectors.py`, `docs/INTEGRATIONS.md`
+
+**Acceptance:** all six land offline with the suite green (1758 → 1901, +143), ruff clean, docs-drift
+green; each ships tests + (where applicable) an `evidence/*.json`. Purely additive: no live-validated
+scenario, tool, or core module was modified except the backward-compatible connector wiring in
+`siem_query` (its 11 existing live tests stay green).
+
+**Next (not yet built — the ranked backlog beyond M13):** C1-autonomy (the self-improving harness
+authoring its OWN iterations over a Gateway, closing the last runner-orchestration gap); more
+connectors (QRadar / Sentinel / PagerDuty); end-to-end OTEL span emission to feed managed online-eval;
+and running the remaining `[EXTERNAL]` items on an account with `InvokeHarness`/`CreateAgentRuntime` quota.
+
+---
+
 ## 5. Key specs (P0 detail; other milestones self-expand at this granularity)
 
 ### 5.1 `tools/harness_ops/handler.py` (M1 core, write first)

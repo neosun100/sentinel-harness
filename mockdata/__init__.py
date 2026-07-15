@@ -42,6 +42,12 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from .accounts import accounts, finding_types
+from .campaign import (
+    campaign_alerts,
+    false_positive_alerts,
+    threat_chains,
+    true_positive_alerts,
+)
 from .enterprise import (
     crown_jewels,
     exposure_surface,
@@ -60,6 +66,10 @@ __all__ = [
     "load_enterprise",
     "exposure_surface",
     "crown_jewels",
+    "campaign_alerts",
+    "threat_chains",
+    "true_positive_alerts",
+    "false_positive_alerts",
 ]
 
 

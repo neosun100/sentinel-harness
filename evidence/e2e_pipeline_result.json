@@ -1,0 +1,227 @@
+{
+  "scenario": "e2e_pipeline",
+  "steps": [
+    {
+      "step": "ingest",
+      "ok": true,
+      "data": {
+        "alerts": 28
+      }
+    },
+    {
+      "step": "triage",
+      "ok": true,
+      "data": {
+        "tp_count": 20,
+        "fp_count": 8
+      }
+    },
+    {
+      "step": "correlate",
+      "ok": true,
+      "data": {
+        "stages_seen": [
+          "collection",
+          "defense_evasion",
+          "execution",
+          "exfiltration",
+          "initial_access",
+          "lateral_movement",
+          "persistence",
+          "privilege_escalation",
+          "recon"
+        ],
+        "hosts_touched": [
+          "web-01",
+          "app-01",
+          "db-01"
+        ]
+      }
+    },
+    {
+      "step": "attack_path",
+      "ok": true,
+      "data": {
+        "total_chains": 15,
+        "realized_chains": [
+          {
+            "entry": "web-01",
+            "path": [
+              "web-01",
+              "app-01",
+              "db-01"
+            ],
+            "impact": "critical",
+            "score": 0.6
+          }
+        ]
+      }
+    },
+    {
+      "step": "feedback",
+      "ok": true,
+      "data": {
+        "fp_events": 8,
+        "triggers": [
+          {
+            "rule_name": "Data Staging: Local Archive Creation",
+            "type": "whitelist_optimization"
+          },
+          {
+            "rule_name": "Data Staging: Local Archive Creation",
+            "type": "rule_regeneration"
+          },
+          {
+            "rule_name": "Tor Exit Node Connection (Informational)",
+            "type": "whitelist_optimization"
+          },
+          {
+            "rule_name": "Tor Exit Node Connection (Informational)",
+            "type": "rule_regeneration"
+          }
+        ]
+      }
+    },
+    {
+      "step": "autonomy",
+      "ok": true,
+      "data": {
+        "promoted": true,
+        "rounds": 2,
+        "final_score": 0.75,
+        "start_score": 0.0
+      }
+    },
+    {
+      "step": "verdict",
+      "ok": true,
+      "data": {
+        "alerts_ingested": 28,
+        "triage_split": {
+          "tp": 20,
+          "fp": 8
+        },
+        "kill_chain_stages": [
+          "collection",
+          "defense_evasion",
+          "execution",
+          "exfiltration",
+          "initial_access",
+          "lateral_movement",
+          "persistence",
+          "privilege_escalation",
+          "recon"
+        ],
+        "hosts_touched": [
+          "web-01",
+          "app-01",
+          "db-01"
+        ],
+        "realized_attack_paths": [
+          {
+            "entry": "web-01",
+            "path": [
+              "web-01",
+              "app-01",
+              "db-01"
+            ],
+            "impact": "critical",
+            "score": 0.6
+          }
+        ],
+        "feedback_triggers": [
+          {
+            "rule_name": "Data Staging: Local Archive Creation",
+            "type": "whitelist_optimization"
+          },
+          {
+            "rule_name": "Data Staging: Local Archive Creation",
+            "type": "rule_regeneration"
+          },
+          {
+            "rule_name": "Tor Exit Node Connection (Informational)",
+            "type": "whitelist_optimization"
+          },
+          {
+            "rule_name": "Tor Exit Node Connection (Informational)",
+            "type": "rule_regeneration"
+          }
+        ],
+        "autonomy": {
+          "promoted": true,
+          "rounds": 2,
+          "final_score": 0.75,
+          "start_score": 0.0
+        },
+        "single_trace_id": true,
+        "span_count": 6,
+        "closed": true,
+        "note": "One coherent alert campaign flows through triage -> correlation -> attack-path reasoning (real build_attack_paths) -> feedback (real whitelist trigger) -> self-improvement (real autonomy controller), all under one GenAI/OTEL trace. Deterministic + offline; proves the components COMPOSE into a smooth end-to-end SecOps flow."
+      }
+    }
+  ],
+  "trace_id": "2868a5e489024702b83c30db42124e9d",
+  "verdict": {
+    "alerts_ingested": 28,
+    "triage_split": {
+      "tp": 20,
+      "fp": 8
+    },
+    "kill_chain_stages": [
+      "collection",
+      "defense_evasion",
+      "execution",
+      "exfiltration",
+      "initial_access",
+      "lateral_movement",
+      "persistence",
+      "privilege_escalation",
+      "recon"
+    ],
+    "hosts_touched": [
+      "web-01",
+      "app-01",
+      "db-01"
+    ],
+    "realized_attack_paths": [
+      {
+        "entry": "web-01",
+        "path": [
+          "web-01",
+          "app-01",
+          "db-01"
+        ],
+        "impact": "critical",
+        "score": 0.6
+      }
+    ],
+    "feedback_triggers": [
+      {
+        "rule_name": "Data Staging: Local Archive Creation",
+        "type": "whitelist_optimization"
+      },
+      {
+        "rule_name": "Data Staging: Local Archive Creation",
+        "type": "rule_regeneration"
+      },
+      {
+        "rule_name": "Tor Exit Node Connection (Informational)",
+        "type": "whitelist_optimization"
+      },
+      {
+        "rule_name": "Tor Exit Node Connection (Informational)",
+        "type": "rule_regeneration"
+      }
+    ],
+    "autonomy": {
+      "promoted": true,
+      "rounds": 2,
+      "final_score": 0.75,
+      "start_score": 0.0
+    },
+    "single_trace_id": true,
+    "span_count": 6,
+    "closed": true,
+    "note": "One coherent alert campaign flows through triage -> correlation -> attack-path reasoning (real build_attack_paths) -> feedback (real whitelist trigger) -> self-improvement (real autonomy controller), all under one GenAI/OTEL trace. Deterministic + offline; proves the components COMPOSE into a smooth end-to-end SecOps flow."
+  }
+}

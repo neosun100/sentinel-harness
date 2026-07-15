@@ -1,0 +1,140 @@
+{
+  "scenario": "tracing",
+  "steps": [
+    {
+      "step": "emit_trace",
+      "ok": true,
+      "data": {
+        "trace_id": "6542bd425ced8d179f55efc8a79e9992",
+        "span_count": 4,
+        "span_names": [
+          "meta_agent.emit_spec",
+          "agent_ops.build_harness",
+          "run_evaluation.score",
+          "agent_ops.promote"
+        ]
+      }
+    },
+    {
+      "step": "single_trace_id",
+      "ok": true,
+      "data": {
+        "trace_id": "6542bd425ced8d179f55efc8a79e9992"
+      }
+    },
+    {
+      "step": "correct_nesting",
+      "ok": true,
+      "data": {
+        "root": "meta_agent.emit_spec",
+        "judge_parent_is_build": true
+      }
+    },
+    {
+      "step": "genai_attributes",
+      "ok": true,
+      "data": {
+        "meta_model": "opus",
+        "judge_score": 0.95
+      }
+    },
+    {
+      "step": "error_span_recorded",
+      "ok": true,
+      "data": {
+        "status": "ERROR",
+        "has_exception_event": true
+      }
+    },
+    {
+      "step": "verdict",
+      "ok": true,
+      "data": {
+        "trace_id": "6542bd425ced8d179f55efc8a79e9992",
+        "span_count": 4,
+        "single_trace_id": true,
+        "correct_nesting": true,
+        "genai_attributes": true,
+        "error_span_recorded": true,
+        "closed": true,
+        "note": "Code-emitted GenAI spans over the meta→ops→judge→promote chain feed the aws/spans Transaction-Search source managed online-eval scores. Offline = structured JSON lines (deterministic); SENTINEL_OTEL=1 also drives real OpenTelemetry spans into X-Ray."
+      }
+    }
+  ],
+  "trace": {
+    "trace_id": "6542bd425ced8d179f55efc8a79e9992",
+    "spans": [
+      {
+        "span": "meta_agent.emit_spec",
+        "trace_id": "6542bd425ced8d179f55efc8a79e9992",
+        "span_id": "01e4d08d0815b519",
+        "parent_span_id": null,
+        "status": "OK",
+        "attributes": {
+          "gen_ai.system": "aws.bedrock.agentcore",
+          "gen_ai.operation.name": "chat",
+          "gen_ai.request.model": "opus",
+          "gen_ai.usage.input_tokens": 1200,
+          "gen_ai.usage.output_tokens": 300,
+          "sentinel.scenario": "self_iteration"
+        },
+        "events": []
+      },
+      {
+        "span": "agent_ops.build_harness",
+        "trace_id": "6542bd425ced8d179f55efc8a79e9992",
+        "span_id": "0e335ce227d3e56d",
+        "parent_span_id": "01e4d08d0815b519",
+        "status": "OK",
+        "attributes": {
+          "gen_ai.system": "aws.bedrock.agentcore",
+          "gen_ai.operation.name": "create_harness",
+          "sentinel.scenario": "self_iteration",
+          "sentinel.harness_id": "alert-triage-v2"
+        },
+        "events": []
+      },
+      {
+        "span": "run_evaluation.score",
+        "trace_id": "6542bd425ced8d179f55efc8a79e9992",
+        "span_id": "70090781a3f4af0e",
+        "parent_span_id": "0e335ce227d3e56d",
+        "status": "OK",
+        "attributes": {
+          "gen_ai.system": "aws.bedrock.agentcore",
+          "gen_ai.operation.name": "evaluate",
+          "gen_ai.request.model": "sonnet",
+          "sentinel.scenario": "self_iteration",
+          "sentinel.eval_score": 0.95,
+          "sentinel.passed": true
+        },
+        "events": []
+      },
+      {
+        "span": "agent_ops.promote",
+        "trace_id": "6542bd425ced8d179f55efc8a79e9992",
+        "span_id": "f208f8ee6c4e1f6a",
+        "parent_span_id": "01e4d08d0815b519",
+        "status": "OK",
+        "attributes": {
+          "gen_ai.system": "aws.bedrock.agentcore",
+          "gen_ai.operation.name": "create_endpoint",
+          "sentinel.scenario": "self_iteration",
+          "sentinel.harness_id": "alert-triage-v2",
+          "sentinel.hitl_gate": "request_promotion_approval"
+        },
+        "events": []
+      }
+    ]
+  },
+  "verdict": {
+    "trace_id": "6542bd425ced8d179f55efc8a79e9992",
+    "span_count": 4,
+    "single_trace_id": true,
+    "correct_nesting": true,
+    "genai_attributes": true,
+    "error_span_recorded": true,
+    "closed": true,
+    "note": "Code-emitted GenAI spans over the meta→ops→judge→promote chain feed the aws/spans Transaction-Search source managed online-eval scores. Offline = structured JSON lines (deterministic); SENTINEL_OTEL=1 also drives real OpenTelemetry spans into X-Ray."
+  }
+}

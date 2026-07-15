@@ -530,10 +530,29 @@ green; each ships tests + (where applicable) an `evidence/*.json`. Purely additi
 scenario, tool, or core module was modified except the backward-compatible connector wiring in
 `siem_query` (its 11 existing live tests stay green).
 
-**Next (not yet built — the ranked backlog beyond M13):** C1-autonomy (the self-improving harness
-authoring its OWN iterations over a Gateway, closing the last runner-orchestration gap); more
-connectors (QRadar / Sentinel / PagerDuty); end-to-end OTEL span emission to feed managed online-eval;
-and running the remaining `[EXTERNAL]` items on an account with `InvokeHarness`/`CreateAgentRuntime` quota.
+### M13.7 — Autonomous self-improvement controller (C1) — ✅ DELIVERED (offline)
+Closes the last runner-orchestration gap: the improve→score→gate→promote DECISIONS are lifted
+out of the scenario script into a reusable, tested controller the self-improving harness drives.
+- [x] `sentinel_harness/autonomy.py` — `run_improvement_loop(candidate, score_fn, revise_fn, *,
+      threshold, max_rounds, incumbent_best, approve_fn)`: deterministic decision engine decoupled
+      from I/O (scoring/revision/approval are INJECTED callables). Retry-with-reasoning up to a hard
+      cap (no spin), then promotion gated on safety veto + pass bar + `regression_guard` +
+      human approval — fail-closed. Reuses `loop_safety`. — `sentinel_harness/autonomy.py`
+- [x] `scenarios/scenario_autonomous_loop.py` — drives the controller across all 5 golden domains
+      with the real offline scorer: weak (0.00) → autonomous revise → pass (0.75–1.00) → APPROVE
+      promotes / REJECT withholds; a safety-trap complying answer NEVER promotes even with approval.
+      — `evidence/autonomous_loop_result.json` (closed:true)
+- [x] 39 tests incl. Hypothesis invariants (never promote below bar / with a failed safety dim /
+      beyond max_rounds). Suite 1901 → 1923.
+- [ ] **Live wiring (the one remaining step):** have `scenario_self_improve_loop.py` delegate its
+      decisions to `run_improvement_loop` (score_fn=`run_evaluation`, revise_fn=`agent-ops` invoke,
+      approve_fn=`inline_function` gate) — a small swap, gated on `InvokeHarness` quota; the offline
+      proof + the controller already exist, only the live-scenario refactor + a real run remain.
+
+**Next (ranked backlog beyond M13.7):** wire the controller into the live self-improve scenario
+(above); more connectors (QRadar / Microsoft Sentinel / PagerDuty); end-to-end OTEL span emission to
+feed managed online-eval; and running the remaining `[EXTERNAL]` items on an account with
+`InvokeHarness`/`CreateAgentRuntime` quota.
 
 ---
 

@@ -84,6 +84,79 @@ _LOSSY_MODIFIERS = {"re", "base64", "base64offset", "cidr", "gt", "gte", "lt", "
 _VALID_TARGETS = {"yara", "suricata"}
 
 
+# --------------------------------------------------------------------------- #
+# Grammar-aware escaping — a Sigma value/title is UNTRUSTED text interpolated  #
+# into a YARA/Suricata rule. Without escaping, a value containing the target   #
+# grammar's metacharacters ("  \\  newline  ;  |  {  }) breaks out of the      #
+# emitted literal and corrupts (or injects into) the rule — the exact class of #
+# defect an output-injection audit hunts for. These make the emitted rule      #
+# ALWAYS syntactically valid for any input.                                    #
+# --------------------------------------------------------------------------- #
+def _yara_escape(text: str) -> str:
+    """Escape untrusted text for a YARA double-quoted text string.
+
+    Backslash and double-quote are backslash-escaped; ``\\t``/``\\n``/``\\r`` use
+    their YARA escapes; every other non-printable or non-ASCII byte becomes a
+    ``\\xHH`` escape (per-UTF-8-byte). The result can never contain a raw quote,
+    backslash, or newline, so it cannot break the string literal."""
+    out: List[str] = []
+    for ch in text:
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == "\t":
+            out.append("\\t")
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\r":
+            out.append("\\r")
+        elif 0x20 <= ord(ch) <= 0x7E:
+            out.append(ch)
+        else:
+            out.extend("\\x%02x" % b for b in ch.encode("utf-8"))
+    return "".join(out)
+
+
+def _suricata_content_escape(text: str) -> str:
+    """Encode untrusted text as a valid Suricata ``content:`` string.
+
+    Printable ASCII other than the content metacharacters (``"`` ``;`` ``\\``
+    ``|``) is kept literal; every metacharacter, control char, and non-ASCII byte
+    is hex-encoded inside a ``|..|`` block (consecutive bytes coalesced). This
+    guarantees the value cannot break the quoted literal, the ``;`` option
+    separator, or the ``|`` hex-block delimiter — e.g. ``a|b`` → ``a|7C|b``."""
+    special = set('"|;\\')
+    out: List[str] = []
+    hexrun: List[str] = []
+
+    def _flush() -> None:
+        if hexrun:
+            out.append("|" + " ".join(hexrun) + "|")
+            hexrun.clear()
+
+    for ch in text:
+        for b in ch.encode("utf-8"):
+            if 0x20 <= b <= 0x7E and chr(b) not in special:
+                _flush()
+                out.append(chr(b))
+            else:
+                hexrun.append("%02X" % b)
+    _flush()
+    return "".join(out)
+
+
+def _suricata_msg_escape(text: str) -> str:
+    """Escape an untrusted title for a Suricata ``msg:"..."`` string.
+
+    Control chars (incl. newlines) collapse to a space so a single-line rule stays
+    single-line; backslash and double-quote are backslash-escaped so the value
+    cannot close the quoted literal. ``;``/``(``/``)`` are left as-is: they are
+    harmless INSIDE the quoted msg once the linter is quote-aware."""
+    cleaned = "".join(c if 0x20 <= ord(c) <= 0x7E else " " for c in text)
+    return cleaned.replace("\\", "\\\\").replace('"', '\\"')
+
+
 class _TranslateError(ValueError):
     """Malformed request (bad input shape). Distinct from a translation caveat."""
 
@@ -104,34 +177,52 @@ def _validate(event: Dict[str, Any]) -> Tuple[str, List[str]]:
 
 
 def _iter_predicates(detection: Dict[str, Any]):
-    """Yield (selection_name, field, modifier, value) for every leaf predicate.
+    """Yield (selection_name, field, modifier, modifiers, value) per leaf predicate.
 
-    A selection is a map of ``field`` or ``field|modifier`` → value(s). A list
-    value yields one predicate per element (Sigma OR semantics). Deterministic
-    order: selections then fields as authored (dict preserves insertion order)."""
+    A selection is a map of ``field`` or ``field|mod1|mod2...`` → value(s). A list
+    value yields one predicate per element (Sigma OR semantics). ``modifier`` is the
+    FIRST modifier (back-compat / primary value-transform); ``modifiers`` is the
+    FULL chain (``parts[1:]``) so an aggregator like ``|all`` is not silently lost.
+    Deterministic order: selections then fields as authored (dict preserves order)."""
     for sel_name, sel in detection.items():
         if sel_name == "condition" or not isinstance(sel, dict):
             continue
         for key, value in sel.items():
             parts = key.split("|")
             field = parts[0]
-            modifier = parts[1] if len(parts) > 1 else None
+            modifiers = parts[1:]
+            modifier = modifiers[0] if modifiers else None
             values = value if isinstance(value, list) else [value]
             for v in values:
-                yield sel_name, field, modifier, v
+                yield sel_name, field, modifier, modifiers, v
+
+
+def _yara_rule_name(title: str) -> str:
+    """Derive a YARA-legal identifier from a Sigma title.
+
+    A YARA rule name must match ``[A-Za-z_]\\w*`` — it may NOT start with a digit.
+    Sigma titles routinely do ('404 anomaly', '4625 brute force'), so a bare
+    ``\\W→_`` substitution yielded names the engine (and this project's own linter)
+    rejects. Prefix ``r_`` when the sanitized name does not start with a letter or
+    underscore."""
+    safe = re.sub(r"\W", "_", title).strip("_") or "translated_rule"
+    if not re.match(r"[A-Za-z_]", safe):
+        safe = "r_" + safe
+    return safe
 
 
 def _emit_yara(title: str, predicates: List[tuple], notes: List[str]) -> str:
     """Build a YARA rule skeleton from the string predicates.
 
     Each faithful predicate becomes a ``$s<N>`` string; the condition is the OR of
-    all strings (a human tightens to AND / ordering as needed — noted)."""
-    safe_name = re.sub(r"\W", "_", title).strip("_") or "translated_rule"
+    all strings (a human tightens to AND / ordering as needed — noted). All
+    untrusted text (values AND the title) is grammar-escaped so the emitted rule is
+    always syntactically valid regardless of input."""
+    safe_name = _yara_rule_name(title)
+    esc_title = _yara_escape(title)
     strings: List[str] = []
     for i, (sel, field, modifier, value) in enumerate(predicates, 1):
-        text = str(value)
-        # YARA string escaping: backslash + double-quote.
-        esc = text.replace("\\", "\\\\").replace('"', '\\"')
+        esc = _yara_escape(str(value))
         strings.append(f'        $s{i} = "{esc}"  // from {sel}.{field}'
                        + (f"|{modifier}" if modifier else ""))
     if not strings:
@@ -143,7 +234,7 @@ def _emit_yara(title: str, predicates: List[tuple], notes: List[str]) -> str:
         f"rule {safe_name}\n"
         f"{{\n"
         f"    meta:\n"
-        f'        description = "Auto-translated from Sigma: {title}"\n'
+        f'        description = "Auto-translated from Sigma: {esc_title}"\n'
         f'        source = "detection_translate (skeleton — human review required)"\n'
         f"    strings:\n"
         + "\n".join(strings) + "\n"
@@ -161,8 +252,7 @@ def _emit_suricata(title: str, predicates: List[tuple], notes: List[str]) -> str
     MUST replace with an allocated id (noted)."""
     contents: List[str] = []
     for sel, field, modifier, value in predicates:
-        text = str(value)
-        esc = text.replace("\\", "\\\\").replace('"', '\\"')
+        esc = _suricata_content_escape(str(value))
         piece = f'content:"{esc}";'
         if modifier == "startswith":
             piece += " startswith;"
@@ -175,13 +265,45 @@ def _emit_suricata(title: str, predicates: List[tuple], notes: List[str]) -> str
     content_block = " ".join(c.split(" //")[0] for c in contents)
     notes.append("Suricata: sid:1000000 is a PLACEHOLDER — allocate a real sid "
                  "from your managed range before deploy; verify proto/ports.")
-    esc_msg = title.replace('"', '\\"')
+    esc_msg = _suricata_msg_escape(title)
     return (
         f'alert ip any any -> any any '
         f'(msg:"Auto-translated from Sigma: {esc_msg}"; '
         f"{content_block} "
         f"classtype:misc-activity; sid:1000000; rev:1;)\n"
     )
+
+
+def _classify_condition(condition: str, untranslatable: List[str], notes: List[str]) -> None:
+    """Inspect the Sigma ``condition`` and record how faithfully the OR-flatten
+    skeleton preserves it.
+
+    NEGATION is the load-bearing case: ``selection and not filter`` means "match
+    selection but EXCLUDE filter". The skeleton OR-flattens every selection, so a
+    ``not`` is not merely lost — it is INVERTED (an exclusion becomes an extra
+    inclusion). That silently changes matching semantics, so it MUST land in
+    ``untranslatable`` (the tool's honesty ledger), not just ``notes``. A regex
+    char-class check missed this because ``not``/``and`` are pure word chars; we
+    tokenize instead. Other non-trivial boolean structure (aggregates, parens,
+    pipes) is a softer ``notes`` caveat — order preserved, no inversion."""
+    cond = condition.strip()
+    if not cond:
+        return
+    tokens = re.split(r"[\s()]+", cond.lower())
+    if "not" in tokens:
+        untranslatable.append(
+            f"condition {condition!r} uses NEGATION ('not'): the OR-flatten skeleton "
+            f"does NOT preserve exclusion — a negated selection is inverted into an "
+            f"inclusion. A human MUST re-model the exclusion."
+        )
+    # Anything beyond a bare 'and'/'or' of selection names (aggregates, pipes,
+    # wildcards, near/count) is a softer flatten caveat.
+    if not re.fullmatch(r"[\w\s()|*]+", cond) or any(
+        t in tokens for t in ("of", "them", "count", "near")
+    ):
+        notes.append(f"condition {condition!r} contains operators beyond the "
+                     "and/or-of-selections subset — the emitted skeleton flattens "
+                     "it; a human must reconstruct the boolean logic.")
 
 
 def _translate(sigma_text: str, targets: List[str]) -> Dict[str, Any]:
@@ -197,7 +319,32 @@ def _translate(sigma_text: str, targets: List[str]) -> Dict[str, Any]:
     predicates: List[tuple] = []
     untranslatable: List[str] = []
     notes: List[str] = []
-    for sel, field, modifier, value in _iter_predicates(detection):
+    for sel, field, modifier, modifiers, value in _iter_predicates(detection):
+        # A null/absent Sigma value ('field:' with no value) or a non-string
+        # scalar has no faithful literal content equivalent — a Sigma null means
+        # "field must be absent/null", NOT the literal text 'None'. Route to
+        # untranslatable rather than emitting a bogus content match for 'None'/'123'.
+        if value is None or not isinstance(value, str):
+            untranslatable.append(
+                f"{sel}.{field} = {value!r}: null/absence or non-string predicate has "
+                f"no faithful content equivalent — NOT emitted; a human must model it."
+            )
+            continue
+        if value == "":
+            untranslatable.append(
+                f"{sel}.{field} = '': empty-string predicate has no valid content/"
+                f"string match (engines reject an empty literal) — NOT emitted."
+            )
+            continue
+        # An aggregator like '|all' (BOTH values must match — AND) beyond the value
+        # transform cannot be carried by the OR-flatten skeleton: flag it loudly.
+        aggregators = [m for m in modifiers[1:] if m in ("all",)]
+        if aggregators:
+            untranslatable.append(
+                f"{sel}.{field}|{'|'.join(modifiers)} = {value!r}: the '|all' aggregator "
+                f"(ALL values must match — AND) is NOT preserved by the OR skeleton; a "
+                f"human must reconstruct the AND grouping."
+            )
         if modifier in _LOSSY_MODIFIERS:
             # Emit a best-effort content match for the value but flag it loudly.
             untranslatable.append(
@@ -214,11 +361,7 @@ def _translate(sigma_text: str, targets: List[str]) -> Dict[str, Any]:
                 f"{modifier!r}; skipped (no content emitted)."
             )
 
-    condition = str(detection.get("condition", "")).lower()
-    if condition and not re.fullmatch(r"[\w\s()|*]+", condition):
-        notes.append(f"condition {condition!r} contains operators beyond the "
-                     "and/or-of-selections subset — the emitted skeleton flattens "
-                     "it; a human must reconstruct the boolean logic.")
+    _classify_condition(str(detection.get("condition", "")), untranslatable, notes)
 
     translations: Dict[str, str] = {}
     if "yara" in targets:

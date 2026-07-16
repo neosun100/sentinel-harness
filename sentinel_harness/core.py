@@ -232,7 +232,7 @@ def _consume_stream(stream) -> dict:
     a result back via :func:`invoke_with_tool_result` (the HITL resume contract)."""
     out, events, stop, meta, tools_used = "", [], None, None, []
     cur = None          # tool call currently being assembled
-    tool_use = None     # the completed pending call (if the loop paused on tool_use)
+    pending = []        # ALL completed tool calls in this turn (parallel tool_use)
     error = None        # first stream-level error, surfaced explicitly (not just in text)
     for ev in stream:
         for et, payload in ev.items():
@@ -250,9 +250,19 @@ def _consume_stream(stream) -> dict:
                     cur["_raw"] += tu["input"]   # input arrives as JSON string deltas
             elif et == "contentBlockStop":
                 if cur is not None:
-                    try: cur["input"] = json.loads(cur.pop("_raw") or "{}")
-                    except (ValueError, TypeError): cur["input"] = {"_unparsed": cur.pop("_raw", "")}
-                    tool_use = cur; cur = None
+                    # Capture raw ONCE before parsing: popping inside both the try and
+                    # except lost the payload (2nd pop returned the '' default), so the
+                    # _unparsed fallback was always empty. Now it preserves the raw text.
+                    raw = cur.pop("_raw", "") or ""
+                    try:
+                        cur["input"] = json.loads(raw or "{}")
+                    except (ValueError, TypeError):
+                        cur["input"] = {"_unparsed": raw}
+                    # APPEND — a turn can pause on MULTIPLE parallel tool_use blocks;
+                    # keeping only the last silently dropped earlier HITL gates and
+                    # produced a resume message missing a toolResult for each pending id.
+                    pending.append(cur)
+                    cur = None
             elif et == "messageStop":
                 stop = payload.get("stopReason")
             elif et == "metadata":
@@ -268,8 +278,15 @@ def _consume_stream(stream) -> dict:
     # metadata blob — see sentinel_harness.observability.emit_token_metric. None when a
     # stream carried no usage metadata (e.g. an errored/empty stream).
     usage = (meta or {}).get("usage")
+    # Expose the pending HITL calls only when the loop actually paused on tool_use.
+    # ``tool_uses`` is the FULL list (>=1 for parallel gates); ``tool_use`` stays the
+    # first for backward compatibility with single-gate callers, but a caller that
+    # must resume correctly should answer EVERY entry in ``tool_uses``.
+    paused = pending if stop == "tool_use" else []
     return {"text": out, "events": events, "stop_reason": stop,
-            "tools_used": tools_used, "tool_use": tool_use if stop == "tool_use" else None,
+            "tools_used": tools_used,
+            "tool_use": paused[0] if paused else None,
+            "tool_uses": paused,
             "metadata": meta, "usage": usage, "error": error}
 
 

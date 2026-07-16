@@ -98,8 +98,9 @@ MetricFilter path (structured log line) is preferred and needs no IAM change.
 
 ## Tracing (OTEL / GenAI spans)
 
-**Honest status:** the library does **not** yet emit OpenTelemetry spans from code. What
-*is* proven live is the managed path on top of CloudWatch **Transaction Search**:
+**Status:** the library now emits GenAI spans from code (`sentinel_harness/tracing.py`,
+see below), AND the managed scoring path on top of CloudWatch **Transaction Search**
+is proven live:
 
 - `evidence/live_online_evaluation_result.json` — an `OnlineEvaluationConfig` is ACTIVE,
   sampling 100% of AgentCore GenAI sessions from the Transaction Search `aws/spans`
@@ -116,8 +117,23 @@ To enable that path (one-time, account-level):
 4. `CreateOnlineEvaluationConfig` with `dataSourceConfig.cloudWatchLogs.logGroupNames = ["aws/spans"]`
    and reference-free `Builtin.*` evaluators.
 
-Emitting OTEL/GenAI spans directly from an invoke (a `SENTINEL_OTEL` code path) is a
-documented **future** item, not shipped.
+### Code-emitted GenAI spans (`sentinel_harness/tracing.py`) — shipped
+
+A `Tracer` emits GenAI-semantic-convention spans (`gen_ai.system` /
+`gen_ai.operation.name` / `gen_ai.request.model` / `gen_ai.usage.*_tokens` +
+`sentinel.*` context) over the whole meta→ops→judge→promote chain, nesting via
+`trace_id` + `span_id` + `parent_span_id` so one self-iteration run is one trace.
+
+- **Offline-first & deterministic (default):** each span is a structured JSON line
+  (the same "emit a line the pipeline turns into signal" contract as the token
+  metric) with deterministic ids — zero AWS, no clock, no `opentelemetry`
+  dependency. `scenarios/scenario_tracing.py` emits the 4-span chain
+  (`evidence/tracing_result.json`).
+- **Live (opt-in):** set `SENTINEL_OTEL=1` and each span ALSO drives a real
+  OpenTelemetry span (lazy, gated import) into X-Ray / Transaction Search, so the
+  code-emitted spans land in the same `aws/spans` source the managed online-eval
+  above already scores — closing the loop from "runtime-only spans" to
+  "code-emitted GenAI spans".
 
 ## Env-flag reference
 
@@ -126,6 +142,7 @@ documented **future** item, not shipped.
 | `SENTINEL_LOG_LEVEL` | `INFO` | Logger level |
 | `SENTINEL_LOG_JSON` | off | JSON vs text log records |
 | `SENTINEL_TOKEN_METRIC_LIVE` | off | Opt-in direct `PutMetricData` (needs a widened role) |
+| `SENTINEL_OTEL` | off | Opt-in real OpenTelemetry span emission (default = structured JSON span lines) |
 | `SENTINEL_REGION` | `us-east-1` | Region for any AWS client |
 
 ## Viewing it

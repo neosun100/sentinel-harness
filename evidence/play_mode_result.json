@@ -76,7 +76,7 @@
       "step": "checkpoint_roundtrip",
       "ok": true,
       "data": {
-        "path": "/Users/jiasunm/Code/sentinel-harness/scenarios/../evidence/play_mode_checkpoint_approve.json",
+        "path": "evidence/play_mode_checkpoint_approve.json",
         "steps": 3
       }
     }

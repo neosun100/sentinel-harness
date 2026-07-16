@@ -1,0 +1,114 @@
+{
+  "scenario": "benchmark",
+  "steps": [
+    {
+      "step": "inputs",
+      "ok": true,
+      "data": {
+        "workload": "generic SecOps triage",
+        "invokes_per_month": 6000,
+        "input_tokens": 4000,
+        "output_tokens": 800,
+        "model_id": "sonnet",
+        "prices_as_of": "2026-07"
+      }
+    },
+    {
+      "step": "run_benchmark",
+      "ok": true,
+      "data": {
+        "workload": {
+          "name": "generic SecOps triage",
+          "invokes_per_month": 6000,
+          "input_tokens": 4000,
+          "output_tokens": 800
+        },
+        "model_id": "sonnet",
+        "modes": [
+          {
+            "mode": "agentcore_harness",
+            "label": "AgentCore Harness (managed)",
+            "model_usd": 144.0,
+            "compute_usd": 12.0,
+            "total_usd": 156.0,
+            "latency_overhead_ms": 120.0,
+            "ops_hours_per_month": 2.0,
+            "owns_agent_loop": false
+          },
+          {
+            "mode": "raw_bedrock",
+            "label": "Raw Bedrock + DIY loop",
+            "model_usd": 144.0,
+            "compute_usd": 73.0,
+            "total_usd": 217.0,
+            "latency_overhead_ms": 50.0,
+            "ops_hours_per_month": 24.0,
+            "owns_agent_loop": true
+          },
+          {
+            "mode": "self_hosted_eks",
+            "label": "Self-hosted EKS cluster",
+            "model_usd": 144.0,
+            "compute_usd": 1168.0,
+            "total_usd": 1312.0,
+            "latency_overhead_ms": 20.0,
+            "ops_hours_per_month": 40.0,
+            "owns_agent_loop": true
+          }
+        ],
+        "cheapest_mode": "agentcore_harness",
+        "baseline_mode": "self_hosted_eks",
+        "savings_vs_baseline_usd": 1156.0,
+        "savings_vs_baseline_pct": 88.1,
+        "notes": [
+          "Deterministic model over dated unit prices — verify prices before quoting (see benchmark_models.AS_OF).",
+          "model_usd is identical across modes; the differentiators are compute_usd (who hosts the loop) and ops_hours_per_month (who keeps it running)."
+        ]
+      }
+    },
+    {
+      "step": "model_cost_identical_across_modes",
+      "ok": true,
+      "data": {
+        "model_usd_values": [
+          144.0
+        ]
+      }
+    },
+    {
+      "step": "managed_mode_cheapest",
+      "ok": true,
+      "data": {
+        "cheapest_mode": "agentcore_harness",
+        "baseline_mode": "self_hosted_eks",
+        "savings_usd": 1156.0,
+        "savings_pct": 88.1
+      }
+    },
+    {
+      "step": "verdict",
+      "ok": true,
+      "data": {
+        "cheapest_mode": "agentcore_harness",
+        "baseline_mode": "self_hosted_eks",
+        "savings_vs_baseline_usd": 1156.0,
+        "savings_vs_baseline_pct": 88.1,
+        "model_cost_identical_across_modes": true,
+        "managed_mode_cheapest": true,
+        "closed": true,
+        "note": "Deterministic offline model over dated list prices; verify prices before quoting. Model-token cost is identical across modes — the differentiators are idle-free compute and platform-owned ops toil."
+      }
+    }
+  ],
+  "markdown": "# Deployment benchmark — generic SecOps triage\n\nWorkload: **6,000 invokes/mo** · 4,000 in + 800 out tokens/invoke · model `sonnet`.\n\n| Mode | Model $/mo | Compute $/mo | **Total $/mo** | Latency floor | Ops hrs/mo | Owns loop? |\n|---|--:|--:|--:|--:|--:|:--:|\n| AgentCore Harness (managed) ✅ | $144.00 | $12.00 | **$156.00** | 120 ms | 2.0 | platform |\n| Raw Bedrock + DIY loop | $144.00 | $73.00 | **$217.00** | 50 ms | 24.0 | you |\n| Self-hosted EKS cluster | $144.00 | $1,168.00 | **$1,312.00** | 20 ms | 40.0 | you |\n\n**Headline:** `agentcore_harness` is the cheapest at **$156.00/mo**, saving **$1,156.00/mo (88.1%)** vs. the most expensive mode (`self_hosted_eks`).\n\n> Deterministic model over dated unit prices — verify prices before quoting (see benchmark_models.AS_OF).\n> model_usd is identical across modes; the differentiators are compute_usd (who hosts the loop) and ops_hours_per_month (who keeps it running).\n",
+  "verdict": {
+    "cheapest_mode": "agentcore_harness",
+    "baseline_mode": "self_hosted_eks",
+    "savings_vs_baseline_usd": 1156.0,
+    "savings_vs_baseline_pct": 88.1,
+    "model_cost_identical_across_modes": true,
+    "managed_mode_cheapest": true,
+    "closed": true,
+    "note": "Deterministic offline model over dated list prices; verify prices before quoting. Model-token cost is identical across modes — the differentiators are idle-free compute and platform-owned ops toil."
+  }
+}

@@ -142,6 +142,39 @@ Your backend receives exactly one selector key per call and must return the
 matching events. Missing optional fields are defaulted (`false_positive`→`false`,
 `summary`←`raw_summary`←`""`); you don't have to send every field.
 
+**Named connectors (plug-and-play — no shim to write).** If your SIEM isn't the
+generic `{selector: value}` → `{"events":[…]}` contract above (most aren't), set
+`SIEM_QUERY_CONNECTOR` to a shipped adapter and the tool translates the request
+into the backend's native query DSL and parses its native response envelope for
+you (`sentinel_harness/connectors/`):
+
+| `SIEM_QUERY_CONNECTOR` | Native request | Native response envelope |
+|---|---|---|
+| `splunk` | SPL search (`search index=* … host="web-01"`, `output_mode=json`) | `{"results":[ … ]}` |
+| `elastic` | ES query DSL (`{"query":{"term":{"host.keyword":"web-01"}}}` → `POST …/_search`) | `{"hits":{"hits":[{"_source":{…}}]}}` |
+| `opensearch` | same DSL/envelope as `elastic` | `{"hits":{"hits":[…]}}` |
+| `qradar` | AQL (`SELECT * FROM events WHERE sourceip = '…' LAST 24 HOURS`) | `{"events":[ … ]}` |
+| `microsoft_sentinel` | KQL (`SecurityAlert \| where Computer == "web-01"`) | columnar `{"tables":[{"columns":[…],"rows":[[…]]}]}` |
+
+```bash
+export SIEM_QUERY_LIVE=1
+export SIEM_QUERY_URL="https://splunk.example.internal:8089/services/search/jobs/export"
+export SIEM_QUERY_CONNECTOR=splunk   # translate to SPL + parse results[]
+```
+
+Connectors are **pure translation, no network** (the HTTP round-trip stays in the
+tool's SSRF-guarded live path), so each is deterministic and contract-tested with
+a native-response fixture. Field-name drift is absorbed (a source IP under
+`src`/`src_ip`/`source.ip` all map to the neutral `src_ip`), for both flat-dotted
+and nested keys. An unknown connector name fails loudly as `upstream_error`
+listing the known adapters — it never silently degrades. Leave
+`SIEM_QUERY_CONNECTOR` unset to use the generic contract above. Ticketing has the
+same mechanism via `CREATE_TICKET_CONNECTOR` (`servicenow` / `jira` / `pagerduty`).
+
+The `microsoft_sentinel` connector shows the framework isn't limited to
+lists-of-objects: it projects the KQL **columnar** envelope (parallel `columns`
++ `rows` arrays) into neutral events by zipping each row against the column names.
+
 ---
 
 ### 2b. `asset_lookup` — exposure / asset-surface (CMDB / scanner)

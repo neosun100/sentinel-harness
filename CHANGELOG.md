@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 **M13 — world-class depth + adversarial hardening.** Additive on top of M0–M12
-(no live-validated code rewritten). Test suite **1742 → 2284 offline passing**.
+(no live-validated code rewritten). Test suite **1742 → 2324 offline passing**.
 
 ### Added
 - **Deployment benchmark** (`sentinel_harness/benchmark.py`) — deterministic
@@ -81,8 +81,43 @@ All notable changes to this project are documented here. The format is based on
   report. `--techniques` scores ATT&CK coverage, `--json` emits the raw audit,
   `--navigator [OUT]` exports an ATT&CK Navigator layer, and `--min-score N` exits
   non-zero below the threshold so it can gate CI. Pure/offline; exit 2 on bad input.
+- **Detection-library regression baseline** (`tools/detection_baseline/` +
+  `sentinel detection baseline <dir>`) — snapshot a `detection_audit` health
+  baseline, then compare a later audit against it and FAIL (exit 1) if the library
+  degraded: a health-score drop beyond `--allow-score-drop`, OR a NEW invalid rule /
+  uncovered technique / duplicate pair. Set-diff (not just the scalar score) catches
+  churn that a flat score hides — the detection-engineering analogue of a coverage
+  floor. Deterministic; registered + governance-approved.
 
 ### Fixed
+- **Service-model payload-shape drift (5 defects, offline-green/live-red).** A
+  workflow validated every AWS-payload-building module against the REAL botocore
+  service model and found payloads that pass mocked/offline tests (botocore checks
+  TYPES but not string patterns / min-max / Create-vs-Update shape asymmetry at call
+  time) yet `ParamValidationError`/`ValidationException` against the live service —
+  the round-7 gateway-interceptor class. Each fixed with a model-grounded regression
+  test (`test_service_model_drift_regressions.py`):
+  - **core.update_harness (HIGH)** — `UpdateHarness.memory` is
+    `UpdatedHarnessMemoryConfiguration` (a single `optionalValue` member wrapping the
+    config), but the memory builders emit the `CreateHarness` shape — the bare dict
+    passed CreateHarness (green) and failed UpdateHarness (the documented
+    read-modify-write). Now wrapped in `optionalValue` (idempotent).
+  - **registry_live._client_token (HIGH)** — the idempotency token embedded a raw
+    resource name; underscore/dot/slash are legal in a name but ILLEGAL in the
+    `clientToken` pattern (`[a-zA-Z0-9](-*[a-zA-Z0-9]){0,256}`), so a name like
+    `alert_triage` derived an invalid token that only failed live. Now sanitized to
+    the token charset.
+  - **registry_live._client_token (MED)** — the token was padded to the 33-char
+    minimum but never capped at the 256 maximum (a long record name overflowed). Now
+    bounded on both ends.
+  - **factory._existing_env (MED)** — read `summary['tags']`, but a ListHarnesses
+    `HarnessSummary` has no `tags` member, so the env-guard was DEAD (provision
+    cross-env guard never fired; manifest teardown always refused). Now reads tags
+    via `ListTagsForResource(resourceArn)`, failing safe to untagged.
+  - **factory._resolve_entry (MED)** — forwarded manifest tag values verbatim, but
+    `CreateHarness.tags` is `map<string,string>`; an unquoted YAML numeric/bool tag
+    (`build: 42`) passed dry-run and `ParamValidationError`'d at live provision. Now
+    validated to strings during resolution so dry-run catches it.
 - **Adversarial audit remediation:** eight hostile-finder/skeptic-verifier rounds
   cleared **96 confirmed defects** total (round-1: 20; round-2: 22; round-3: 17;
   round-4: 6; round-5: 7; round-6: 9; round-7: 8; round-8: 7), each with a

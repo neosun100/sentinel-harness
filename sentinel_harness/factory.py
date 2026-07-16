@@ -149,6 +149,19 @@ def _resolve_entry(entry: Any, fleet_tags: dict, env: str, index: int) -> dict:
 
     # Tag precedence (lowest -> highest): fleet tags, entry tags, then the env tag.
     tags = {**fleet_tags, **entry_tags, ENV_TAG_KEY: env}
+    # CreateHarness tags is map<string,string>. A YAML value like `build: 42` /
+    # `critical: true` parses to int/bool and would ParamValidationError at live
+    # provision — but botocore checks types only at the call, so dry_run (which makes
+    # no AWS call) would MISS it, breaking the tool's advertised "validates tag
+    # synthesis without AWS" guarantee. Validate every key+value is a str here so a
+    # bad tag fails loud during resolution / dry_run, not mid-fleet-provision.
+    for tk, tv in tags.items():
+        if not isinstance(tk, str) or not isinstance(tv, str):
+            raise FactoryError(
+                f"harnesses[{index}] tag {tk!r}={tv!r}: tag keys and values must be "
+                f"strings (CreateHarness tags is map<string,string>) — quote the value "
+                f"in the manifest, e.g. `{tk}: \"{tv}\"`."
+            )
     return {"name": name, "kwargs": kwargs, "tags": tags}
 
 
@@ -202,9 +215,25 @@ def _index_existing() -> dict[str, dict]:
 
 
 def _existing_env(summary: dict) -> str | None:
-    """The env tag on an existing harness, or None if untagged. list_harnesses returns
-    ``tags`` when present; treat a missing/empty tag map as 'no env claim'."""
-    return (summary.get("tags") or {}).get(ENV_TAG_KEY)
+    """The ``sentinel:env`` tag on an existing harness, or None if untagged/unknown.
+
+    A ListHarnesses ``HarnessSummary`` does NOT carry ``tags`` (its members are
+    harnessId/harnessName/arn/status/…), so reading ``summary['tags']`` always
+    returned None — silently killing both the provision cross-env guard and
+    manifest teardown. Tags must be fetched via ``ListTagsForResource(resourceArn)``.
+    A summary already carrying an inline ``tags`` map (e.g. a test fake) is honored
+    first; a read failure fails safe to None (guard treats it as untagged)."""
+    inline = summary.get("tags")
+    if isinstance(inline, dict):
+        return inline.get(ENV_TAG_KEY)
+    arn = summary.get("arn")
+    if not arn:
+        return None
+    try:
+        resp = core._control.list_tags_for_resource(resourceArn=arn)
+    except Exception:  # noqa: BLE001 — a tag read failure must not crash provisioning
+        return None
+    return (resp.get("tags") or {}).get(ENV_TAG_KEY)
 
 
 # ------------------------------------------------------------------- public API

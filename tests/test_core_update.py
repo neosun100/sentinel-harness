@@ -97,7 +97,10 @@ def test_provided_fields_are_sent_including_falsy(fake_control):
     assert call["model"] == model
     assert call["tools"] == tools
     assert call["skills"] == ["s1"]
-    assert call["memory"] == {"managedMemoryConfiguration": {}}
+    # UpdateHarness.memory requires the `optionalValue` wrapper (unlike CreateHarness,
+    # which takes the bare config) — update_harness now wraps a bare create-shape dict.
+    # Model-grounded proof: test_service_model_drift_regressions.py.
+    assert call["memory"] == {"optionalValue": {"managedMemoryConfiguration": {}}}
     assert call["allowedTools"] == ["code_interpreter"]
     assert call["maxIterations"] == 0
     assert call["maxTokens"] == 4096

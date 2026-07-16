@@ -166,5 +166,68 @@ def test_detection_requires_subcommand(capsys):
         cli.build_parser().parse_args(["detection"])
 
 
+# --------------------------------------------------------------------------- #
+# `sentinel detection baseline` — regression gate                            #
+# --------------------------------------------------------------------------- #
+def test_baseline_snapshot_then_identical_compare_ok(tmp_path, capsys):
+    d = _write_rules(tmp_path, {"a.yml": _GOOD})
+    snap = tmp_path / "baseline.json"
+    rc = cli.main(["detection", "baseline", d, "--snapshot", str(snap)])
+    assert rc == 0 and snap.is_file()
+    capsys.readouterr()
+    # comparing the same tree against its own snapshot => no regression
+    rc = cli.main(["detection", "baseline", d, "--against", str(snap)])
+    out = capsys.readouterr().out
+    assert rc == 0 and "OK (no regression)" in out
+
+
+def test_baseline_detects_regression_and_exits_1(tmp_path, capsys):
+    d = _write_rules(tmp_path, {"a.yml": _GOOD})
+    snap = tmp_path / "baseline.json"
+    cli.main(["detection", "baseline", d, "--snapshot", str(snap)])
+    capsys.readouterr()
+    # degrade the library: add a structurally-broken rule, then compare
+    (tmp_path / "broken.yml").write_text(_BROKEN)
+    rc = cli.main(["detection", "baseline", d, "--against", str(snap)])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "REGRESSED" in out and "new invalid rule" in out
+
+
+def test_baseline_snapshot_to_stdout(tmp_path, capsys):
+    d = _write_rules(tmp_path, {"a.yml": _GOOD})
+    rc = cli.main(["detection", "baseline", d, "--snapshot"])
+    obj = json.loads(capsys.readouterr().out)
+    assert rc == 0 and "health_score" in obj
+
+
+def test_baseline_allow_score_drop_tolerates_small_regression(tmp_path, capsys):
+    # snapshot a clean lib, then compare a slightly-degraded one within tolerance.
+    d = _write_rules(tmp_path, {"a.yml": _GOOD})
+    snap = tmp_path / "b.json"
+    cli.main(["detection", "baseline", d, "--snapshot", str(snap)])
+    capsys.readouterr()
+    (tmp_path / "dup.yaml").write_text(_DUP)   # adds a duplicate pair -> score drop
+    # a generous tolerance still fails because a NEW duplicate pair is set-growth,
+    # but a huge tolerance + no new set item would pass — assert the set-diff wins.
+    rc = cli.main(["detection", "baseline", d, "--against", str(snap),
+                   "--allow-score-drop", "100"])
+    out = capsys.readouterr().out
+    assert rc == 1 and "duplicate pair" in out   # set-growth regresses despite tolerance
+
+
+def test_baseline_compare_without_against_exits_2(tmp_path, capsys):
+    d = _write_rules(tmp_path, {"a.yml": _GOOD})
+    rc = cli.main(["detection", "baseline", d])   # neither --snapshot nor --against
+    assert rc == 2
+    assert "--snapshot" in capsys.readouterr().err
+
+
+def test_baseline_missing_baseline_file_exits_2(tmp_path, capsys):
+    d = _write_rules(tmp_path, {"a.yml": _GOOD})
+    rc = cli.main(["detection", "baseline", d, "--against", str(tmp_path / "nope.json")])
+    assert rc == 2
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

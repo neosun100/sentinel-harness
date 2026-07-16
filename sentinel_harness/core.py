@@ -350,7 +350,10 @@ def invoke_and_meter(harness_arn: str, session_id: str, text: str, *,
 
 def _is_throttle(exc: Exception) -> bool:
     """True if ``exc`` looks like a botocore throttling/rate error (best-effort)."""
-    code = getattr(exc, "response", {}).get("Error", {}).get("Code", "") if hasattr(exc, "response") else ""
+    # `or {}` guards a present-but-None `.response` (e.g. a connection error with
+    # response=None): getattr would return None and None.get(...) would raise,
+    # masking the original fault.
+    code = (getattr(exc, "response", None) or {}).get("Error", {}).get("Code", "")
     name = type(exc).__name__
     return (
         "Throttl" in code or "TooManyRequests" in code or code == "RequestLimitExceeded"
@@ -449,10 +452,30 @@ def delete_harness(harness_id, keep_memory=False):
     return _control.delete_harness(**kw)
 
 
+def _all_harnesses():
+    """Return EVERY harness summary, following ``nextToken`` pagination.
+
+    ListHarnesses is paginated; reading only the first page (``.get('harnesses')``)
+    silently ignored harnesses beyond page 1, so ``cleanup``/``list_harnesses``
+    orphaned them (cost + governance leak). This drains all pages. A page-count cap
+    guards against a backend that never clears the token."""
+    out, token, guard = [], None, 0
+    while True:
+        resp = _control.list_harnesses(nextToken=token) if token else _control.list_harnesses()
+        out.extend(resp.get("harnesses", []))
+        token = resp.get("nextToken")
+        guard += 1
+        if not token or guard > 10_000:  # no more pages (or runaway guard)
+            break
+    return out
+
+
 def cleanup(prefix: str):
-    """Delete every harness whose name starts with ``prefix`` (cascade-deletes managed memory)."""
+    """Delete every harness whose name starts with ``prefix`` (cascade-deletes managed memory).
+
+    Paginates ListHarnesses so harnesses beyond the first page are not orphaned."""
     deleted = []
-    for h in _control.list_harnesses().get("harnesses", []):
+    for h in _all_harnesses():
         if h["harnessName"].startswith(prefix):
             try:
                 delete_harness(h["harnessId"]); deleted.append(h["harnessName"])
@@ -463,7 +486,7 @@ def cleanup(prefix: str):
 
 
 def list_harnesses():
-    """Return the account's harness summaries (the ``harnesses`` list from
-    ``ListHarnesses``), or ``[]`` if none. Each item carries ``harnessId`` /
-    ``harnessName`` / ``status`` / ``arn``."""
-    return _control.list_harnesses().get("harnesses", [])
+    """Return the account's harness summaries (ALL pages of ``ListHarnesses``), or
+    ``[]`` if none. Each item carries ``harnessId`` / ``harnessName`` /
+    ``status`` / ``arn``."""
+    return _all_harnesses()

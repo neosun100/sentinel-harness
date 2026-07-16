@@ -89,6 +89,27 @@ def _map_record(record: Dict[str, Any]) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Splunk                                                                       #
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# DSL escaping helpers — the audit-confirmed injection fix                    #
+# --------------------------------------------------------------------------- #
+def _escape_dquote(value: str) -> str:
+    """Escape a value for interpolation inside a double-quoted DSL string (SPL/KQL).
+
+    Backslash-escapes ``\\`` then ``"`` so the value cannot break out of the quoted
+    literal and inject arbitrary DSL commands. This is the fix for the audited
+    SPL/KQL injection finding (a value like `x" | delete index=*` would previously
+    close the quote and append an arbitrary command)."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _escape_squote(value: str) -> str:
+    """Escape a value for interpolation inside a single-quoted AQL string (QRadar).
+
+    Doubles single quotes (``'`` → ``''``) — the standard SQL/AQL escaping — so
+    the value cannot break out of the quoted literal."""
+    return value.replace("'", "''")
+
+
 class SplunkConnector:
     """Splunk connector. Query becomes an SPL search over a configurable index;
     results come back under ``results`` (the Splunk search-results envelope).
@@ -102,12 +123,10 @@ class SplunkConnector:
     name = "splunk"
 
     def build_request(self, selector: str, value: str) -> Dict[str, Any]:
-        # A neutral selector ("host"/"src_ip"/"*") → an SPL field filter.
         if selector == "*":
             spl = "search index=* sourcetype=alert"
         else:
-            # value is already validated by the tool; quote it for SPL safety.
-            spl = f'search index=* sourcetype=alert {selector}="{value}"'
+            spl = f'search index=* sourcetype=alert {selector}="{_escape_dquote(value)}"'
         return {"body": {"search": spl, "output_mode": "json"}, "path": ""}
 
     def parse_response(self, payload: Any) -> List[Dict[str, Any]]:
@@ -184,8 +203,7 @@ class QRadarConnector:
         if selector == "*":
             aql = "SELECT * FROM events LAST 24 HOURS"
         else:
-            # value is tool-validated; single-quote it for AQL.
-            aql = f"SELECT * FROM events WHERE {selector} = '{value}' LAST 24 HOURS"
+            aql = f"SELECT * FROM events WHERE {selector} = '{_escape_squote(value)}' LAST 24 HOURS"
         return {"body": {"query_expression": aql}, "path": "/api/ariel/searches"}
 
     def parse_response(self, payload: Any) -> List[Dict[str, Any]]:
@@ -217,8 +235,7 @@ class MicrosoftSentinelConnector:
         if selector == "*":
             kql = "SecurityAlert | take 1000"
         else:
-            # KQL string filter; value is tool-validated. Double-quote for KQL.
-            kql = f'SecurityAlert | where {selector} == "{value}" | take 1000'
+            kql = f'SecurityAlert | where {selector} == "{_escape_dquote(value)}" | take 1000'
         return {"body": {"query": kql}, "path": "/v1/query"}
 
     def parse_response(self, payload: Any) -> List[Dict[str, Any]]:

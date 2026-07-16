@@ -154,22 +154,24 @@ class Tracer:
         if _live_enabled():
             live_span = _start_live_span(name, record)
 
+        _error: BaseException | None = None
         try:
             yield record
-        except Exception as exc:  # noqa: BLE001 — record on the span, then re-raise
+        except BaseException as exc:  # noqa: BLE001 — catch ALL (incl KeyboardInterrupt/SystemExit)
+            _error = exc
             record.status = STATUS_ERROR
             record.events.append({"event": "exception", "type": type(exc).__name__,
                                   "message": str(exc)[:200]})
-            if live_span is not None:
-                _end_live_span(live_span, record, error=exc)
-            self._emit(record)
-            self._stack.pop()
             raise
-        else:
+        finally:
+            # ALWAYS: emit the span + pop the stack, even on BaseException (Ctrl-C,
+            # SystemExit, asyncio.CancelledError). This is the fix for the audited
+            # finding: `except Exception` left BaseExceptions unrecorded + the stack
+            # mis-parented subsequent siblings.
             if record.status == STATUS_UNSET:
                 record.status = STATUS_OK
             if live_span is not None:
-                _end_live_span(live_span, record, error=None)
+                _end_live_span(live_span, record, error=_error)
             self._emit(record)
             self._stack.pop()
 

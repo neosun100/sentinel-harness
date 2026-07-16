@@ -116,7 +116,7 @@ def strands_model_callable(agent) -> ModelCallable:  # pragma: no cover
 
     def _call(message_text: str) -> dict:
         result = agent(message_text)
-        text = getattr(result, "message", None) or str(result)
+        text = _agent_result_text(result)
         try:
             return json.loads(text)
         except (TypeError, ValueError) as exc:
@@ -126,6 +126,32 @@ def strands_model_callable(agent) -> ModelCallable:  # pragma: no cover
             ) from exc
 
     return _call
+
+
+def _agent_result_text(result) -> str:
+    """Extract the model's text envelope from a Strands ``AgentResult``.
+
+    A Strands ``AgentResult.message`` is a ``Message`` DICT
+    (``{"role": ..., "content": [{"text": "<envelope>"}, ...]}``), NOT a JSON
+    string — passing it straight to ``json.loads`` always raised ``TypeError`` and
+    made this production seam dead-on-arrival (every live A2A call returned an
+    internal error). Concatenate the text parts of the message; fall back to
+    ``str(result)`` (``AgentResult.__str__`` also concatenates the text blocks) and
+    finally to ``str`` of a bare string result."""
+    msg = getattr(result, "message", None)
+    if isinstance(msg, dict):
+        parts = msg.get("content")
+        if isinstance(parts, list):
+            texts = [p["text"] for p in parts
+                     if isinstance(p, dict) and isinstance(p.get("text"), str)]
+            if texts:
+                return "\n".join(texts)
+        # A message dict without extractable text parts → fall back to str(result),
+        # whose AgentResult.__str__ concatenates the text content.
+        return str(result)
+    if isinstance(result, str):
+        return result
+    return str(result)
 
 
 class LocalA2AServer:

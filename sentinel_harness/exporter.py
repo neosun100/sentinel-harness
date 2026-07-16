@@ -60,6 +60,17 @@ def _py_str(text: str) -> str:
     return '"""\\\n' + body + '\n"""'
 
 
+def _comment_safe(value) -> str:
+    """Render ``value`` as a single inert line for interpolation into a ``#`` comment.
+
+    Collapses ALL control characters (newlines, carriage returns, tabs, etc.) to a
+    single space so an untrusted string cannot break out of the comment line and
+    inject code into the exported module. Deterministic; pure function of the input."""
+    s = str(value)
+    return "".join(ch if (ch == " " or (ch.isprintable() and ch not in "\r\n")) else " "
+                   for ch in s)
+
+
 def _extract_model(config: dict) -> tuple[str | None, int | None, float | None]:
     """Pull (modelId, maxTokens, temperature) out of the config's model block.
 
@@ -143,7 +154,12 @@ def export_harness_to_strands(config: dict) -> str:
     lines.append("#   request_*_approval       -> a human-in-the-loop @tool gate you own")
     if allowed_tools:
         for t in allowed_tools:
-            lines.append(f"#   - {t}")
+            # Sanitize before interpolating into a COMMENT: a raw newline (or other
+            # control char) in an allowedTools entry would break out of the '#' line
+            # and inject arbitrary lines into the exported Strands module. Collapse
+            # control chars to spaces so the entry stays a single, inert comment line.
+            # (The executable ALLOWED_TOOLS list below already uses safe repr via {t!r}.)
+            lines.append(f"#   - {_comment_safe(t)}")
     else:
         lines.append("#   (none declared)")
     lines.append("ALLOWED_TOOLS = [")

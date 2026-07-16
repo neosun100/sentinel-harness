@@ -19,7 +19,27 @@ instance size; the workload default is a generic SecOps sizing.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+
+
+def _require_nonneg_finite(obj, field_name: str) -> None:
+    """Reject a numeric field that is non-finite (NaN/inf) or negative.
+
+    These constants are a documented deployer OVERRIDE surface; an unvalidated
+    negative/NaN flows straight into the cost arithmetic and ranking, producing
+    negative dollars, a savings_pct outside the documented 0-100 range, or an
+    order-undefined sort (NaN). Mirrors Workload's validation so every number in
+    the model is fail-loud rather than silently garbage."""
+    val = getattr(obj, field_name)
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        raise ValueError(
+            f"{type(obj).__name__}.{field_name} must be a real number, got {val!r}"
+        )
+    if not math.isfinite(val) or val < 0:
+        raise ValueError(
+            f"{type(obj).__name__}.{field_name} must be finite and non-negative, got {val!r}"
+        )
 
 # When the unit prices below were last verified against public list pricing.
 AS_OF = "2026-07"
@@ -38,6 +58,10 @@ class ModelPrice:
 
     input_per_1k: float
     output_per_1k: float
+
+    def __post_init__(self) -> None:
+        _require_nonneg_finite(self, "input_per_1k")
+        _require_nonneg_finite(self, "output_per_1k")
 
 
 # Conservative, rounded public list prices (Bedrock, us-east-1, on-demand).
@@ -80,6 +104,15 @@ class ModeModel:
     latency_overhead_ms: float
     ops_hours_per_month: float
     owns_agent_loop: bool
+
+    def __post_init__(self) -> None:
+        if self.billing not in ("standing", "per_invoke"):
+            raise ValueError(
+                f"ModeModel.billing must be 'standing' or 'per_invoke', got {self.billing!r}"
+            )
+        for field_name in ("hourly_usd", "per_invoke_usd", "latency_overhead_ms",
+                           "ops_hours_per_month"):
+            _require_nonneg_finite(self, field_name)
 
 
 # The three modes the report compares. Numbers are conservative sizing estimates

@@ -428,37 +428,42 @@ def _sigma_filter_yaml(field: str, match_type: str, value: str, base_condition: 
     base in parentheses when it is a compound expression so precedence is
     preserved.
     """
-    if match_type == MATCH_EXACT:
-        key, val = field, value
-    elif match_type == MATCH_DOMAIN_EXACT:
-        key, val = field, value
-    elif match_type == MATCH_DOMAIN_SUFFIX:
-        # A domain_suffix is a shared PARENT of >= 2 FP domains, so every FP is a
-        # STRICT subdomain of it (the apex itself is never in the FP cohort — if all
-        # FPs were identical this would be domain_exact, not domain_suffix). The
-        # known-good filter must therefore match strict subdomains ONLY, anchored on
-        # a label boundary. A bare `|endswith: 'example.com'` also matches
-        # "evilexample.com" (a cross-label-boundary lexical match) and would suppress
-        # that true positive — the bug this avoids. Anchor with a leading dot so the
-        # emitted clause matches EXACTLY the strict-subdomain half of
-        # `_clause_matches` (`dv.endswith("." + sv)`).
-        key = f"{field}|endswith"
-        val = f".{value.lower().rstrip('.')}"
-    elif match_type == MATCH_CIDR:
-        key, val = f"{field}|cidr", value
-    else:  # pragma: no cover - defensive
-        key, val = field, value
+    # The emitted filter selection MUST match EXACTLY what `_clause_matches`
+    # certifies as suppressed, or the tool reports a suppressed_count the deployed
+    # artifact does not achieve (a false-green: certifies full FP suppression while
+    # a real FP leaks through). For domain_suffix, `_clause_matches` accepts BOTH the
+    # apex (`dv == sv`) AND strict subdomains (`dv.endswith("." + sv)`), so the
+    # emitted Sigma must be the OR of an exact-apex clause and a strict-subdomain
+    # `|endswith: '.suffix'` clause — a single `|endswith: '.suffix'` misses the apex.
+    filter_lines: List[str]
+    if match_type == MATCH_DOMAIN_SUFFIX:
+        sfx = value.lower().rstrip(".")
+        # Two OR'd filter selections. A bare `|endswith: 'suffix'` would also match a
+        # cross-label lexical value like "evilexample.com", so the strict-subdomain
+        # half is anchored with a leading dot; the apex is matched exactly. Their OR
+        # is precisely `_clause_matches`'s domain_suffix semantics.
+        filter_lines = [
+            "    filter_known_good_apex:",
+            f"        {field}: '{sfx}'",
+            "    filter_known_good_sub:",
+            f"        {field}|endswith: '.{sfx}'",
+        ]
+        filter_ref = "(filter_known_good_apex or filter_known_good_sub)"
+    else:
+        if match_type in (MATCH_EXACT, MATCH_DOMAIN_EXACT):
+            key, val = field, value
+        elif match_type == MATCH_CIDR:
+            key, val = f"{field}|cidr", value
+        else:  # pragma: no cover - defensive
+            key, val = field, value
+        filter_lines = ["    filter_known_good:", f"        {key}: '{val}'"]
+        filter_ref = "filter_known_good"
 
     needs_parens = any(op in f" {base_condition.lower()} " for op in (" and ", " or ", " not "))
     base = f"({base_condition})" if needs_parens else base_condition
-    condition = f"{base} and not filter_known_good"
+    condition = f"{base} and not {filter_ref}"
 
-    return (
-        "detection:\n"
-        "    filter_known_good:\n"
-        f"        {key}: '{val}'\n"
-        f"    condition: {condition}\n"
-    )
+    return "detection:\n" + "\n".join(filter_lines) + f"\n    condition: {condition}\n"
 
 
 # --------------------------------------------------------------------------

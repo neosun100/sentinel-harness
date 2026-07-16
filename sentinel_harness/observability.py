@@ -68,7 +68,7 @@ def _coerce_int(value) -> int:
     return int(f)
 
 
-def token_metric_line(scenario: str, input_tokens, output_tokens, **extra) -> dict:
+def token_metric_line(scenario: str, input_tokens, output_tokens, /, **extra) -> dict:
     """Build the EXACT structured dict the CDK ``MetricFilter`` parses.
 
     The MetricFilter extracts ``$.tokens`` as the metric value, so ``tokens`` is
@@ -92,7 +92,7 @@ def token_metric_line(scenario: str, input_tokens, output_tokens, **extra) -> di
     return line
 
 
-def emit_token_metric(scenario: str, input_tokens, output_tokens, *, log=print, **extra) -> dict:
+def emit_token_metric(scenario: str, input_tokens, output_tokens, /, *, log=print, **extra) -> dict:
     """Emit the ``SentinelHarness/TokensPerScenario`` signal for one scenario run.
 
     Writes the EXACT JSON line the CloudWatch ``MetricFilter`` turns into the metric
@@ -193,13 +193,25 @@ def metric_line(name: str, value, *, scenario=None, unit="Count", **dims) -> dic
     line = {"metric": name, name: v, "unit": unit}
     if scenario is not None:
         line["scenario"] = scenario
-    line.update(dims)
+    # Coerce any non-finite FLOAT dim value to a strict-JSON-safe form: json.dumps
+    # renders NaN/inf as the bare tokens NaN/Infinity, which a strict MetricFilter
+    # parser rejects — silently dropping the whole datapoint. (The metric VALUE was
+    # already hardened above; dim values were not.)
+    line.update({k: _safe_dim(val) for k, val in dims.items()})
     # Re-assert ALL structural keys after merging dims: a caller-supplied dim named
     # 'metric'/'unit'/<name> must never clobber the load-bearing metric fields.
     line["metric"] = name
     line["unit"] = unit
     line[name] = v
     return line
+
+
+def _safe_dim(val):
+    """Make a dimension value strict-JSON-safe: a non-finite float becomes a string
+    (so the emitted line stays parseable), everything else passes through."""
+    if isinstance(val, float) and (val != val or val in (float("inf"), float("-inf"))):
+        return str(val)  # 'nan' / 'inf' / '-inf'
+    return val
 
 
 def emit_metric(name: str, value, *, log=print, scenario=None, unit="Count", **dims) -> dict:
@@ -222,25 +234,35 @@ def emit_tool_calls(scenario: str, n, *, log=print, **dims) -> dict:
     return emit_metric("tool_calls", n, log=log, scenario=scenario, **dims)
 
 
-def emit_error(scenario: str, kind: str, *, log=print, **dims) -> dict:
+# Each emit_* helper attaches a FIXED dimension (kind/gate/dimension/passed). Two
+# safeguards keep a caller-supplied dim of the same name from crashing the emit:
+#  1. the leading params are POSITIONAL-ONLY (the ``/``): a caller passing e.g.
+#     ``kind="manual"`` as a KEYWORD then flows into ``**dims`` instead of colliding
+#     with the positional parameter (which would raise "multiple values for 'kind'"
+#     at the call boundary, before any guard could run);
+#  2. the fixed dim is MERGED into a single dims dict (``{"kind": kind, **dims}``)
+#     rather than passed as its own keyword to emit_metric, so a caller value wins
+#     (last-writer) with no duplicate-keyword TypeError, and metric_line then
+#     re-asserts the structural keys.
+def emit_error(scenario: str, kind: str, /, *, log=print, **dims) -> dict:
     """Emit an error counter tagged by ``kind`` (throttle/validation/internal).
 
     Always value 1 (a count of one error occurrence); the ``kind`` rides along as a
     dimension so the dashboard can break errors down by class."""
-    return emit_metric("errors", 1, log=log, scenario=scenario, kind=kind, **dims)
+    return emit_metric("errors", 1, log=log, scenario=scenario, **{"kind": kind, **dims})
 
 
-def emit_hitl_gate(scenario: str, tool_name: str, *, log=print, **dims) -> dict:
+def emit_hitl_gate(scenario: str, tool_name: str, /, *, log=print, **dims) -> dict:
     """Emit a human-in-the-loop gate hit (``$.hitl_gate``), tagged with the gate tool."""
-    return emit_metric("hitl_gate", 1, log=log, scenario=scenario, gate=tool_name, **dims)
+    return emit_metric("hitl_gate", 1, log=log, scenario=scenario, **{"gate": tool_name, **dims})
 
 
-def emit_eval_score(scenario: str, dimension: str, score, passed, *, log=print, **dims) -> dict:
+def emit_eval_score(scenario: str, dimension: str, score, passed, /, *, log=print, **dims) -> dict:
     """Emit an evaluation score (``$.eval_score``) for one judged dimension.
 
     ``dimension`` (e.g. safety/groundedness) and ``passed`` ride as dimensions so a
     dashboard can trend per-dimension scores and pass-rate."""
     return emit_metric(
         "eval_score", score, log=log, scenario=scenario,
-        dimension=dimension, passed=bool(passed), **dims,
+        **{"dimension": dimension, "passed": bool(passed), **dims},
     )

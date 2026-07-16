@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 **M13 — world-class depth + adversarial hardening.** Additive on top of M0–M12
-(no live-validated code rewritten). Test suite **1742 → 2205 offline passing**.
+(no live-validated code rewritten). Test suite **1742 → 2242 offline passing**.
 
 ### Added
 - **Deployment benchmark** (`sentinel_harness/benchmark.py`) — deterministic
@@ -59,11 +59,52 @@ All notable changes to this project are documented here. The format is based on
   `coverage_ratio`. Conservative — a sub-technique tag covers its parent but a
   parent tag NEVER covers a specific sub-technique, so a false "covered" cannot
   hide a real blind spot. Registered + governance-approved.
+- **One-shot rule-library health check** (`tools/detection_audit/`) — a
+  deterministic, LLM-free AGGREGATOR that runs `sigma_yara_lint` (per rule) +
+  `detection_dedup` + `detection_coverage` over one Sigma set and folds them into a
+  single governance report with a transparent, saturating 0–100 `health_score` and
+  a prioritized worst-first `findings` list. Adds no judgement beyond composing the
+  three conservative tools; resilient to a junk entry (surfaced, not a crash).
+  Registered + governance-approved. This completes the detection-engineering suite:
+  **lint → translate → dedup → coverage → audit**.
 
 ### Fixed
-- **Adversarial audit remediation:** five hostile-finder/skeptic-verifier rounds
-  cleared **72 confirmed defects** total (round-1: 20; round-2: 22; round-3: 17;
-  round-4: 6; round-5: 7), each with a regression test.
+- **Adversarial audit remediation:** six hostile-finder/skeptic-verifier rounds
+  cleared **81 confirmed defects** total (round-1: 20; round-2: 22; round-3: 17;
+  round-4: 6; round-5: 7; round-6: 9), each with a regression test.
+  - Round-6 (gateway, exporter, observability, benchmark_models, scenarios,
+    a2a-contract). 9 confirmed:
+    - **whitelist_optimizer (HIGH, false-green)** — for a `domain_suffix` whitelist
+      whose FP cohort includes the apex domain, the matcher CERTIFIED the apex as
+      suppressed (`dv == sv`) but the emitted Sigma only had `|endswith:
+      '.suffix'` (which cannot match the apex) — so `scenario_feedback_loop`
+      reported `closed=True` while the deployed rule still fired on a real FP. The
+      emitter now produces an OR of an exact-apex clause and a strict-subdomain
+      clause, keeping matcher and artifact in lock-step.
+    - **a2a-contract (HIGH×2, dead-on-arrival seam)** — the production
+      `strands_model_callable` in `_a2a_contract.py` and `cve-intel/local_a2a.py`
+      fed a Strands `AgentResult.message` (a Message DICT) straight to `json.loads`,
+      which always raised `TypeError` → every live A2A call returned an internal
+      error. Now the envelope text is extracted from the message's content parts.
+    - **gateway (MED)** — target-name validation reused the stricter GATEWAY regex
+      (48 chars, no trailing hyphen), falsely rejecting service-valid target names;
+      a separate target validator now allows the API's `([0-9a-zA-Z][-]?){1,100}`.
+    - **exporter (MED, injection)** — an `allowedTools` entry containing a newline
+      broke out of its `#` comment line and injected code into the exported Strands
+      module; entries are now collapsed to a single inert comment line.
+    - **observability (MED)** — the `emit_*` helpers raised `TypeError` when a
+      caller passed a dim colliding with the fixed dimension name
+      (`kind`/`gate`/`dimension`/`input_tokens`); the leading params are now
+      positional-only and the fixed dim is merged so the caller value wins, no crash.
+    - **gateway (LOW)** — `wait_gateway_ready` treated `DELETING` as transient and
+      polled to timeout; `DELETING`/`DELETE_UNSUCCESSFUL` are now terminal (fail fast).
+    - **observability (LOW)** — a non-finite float DIMENSION value emitted the bare
+      `NaN`/`Infinity` token (invalid JSON, silently dropped by a strict
+      MetricFilter); dim values are now coerced to a strict-JSON-safe string.
+    - **benchmark_models (LOW)** — `ModeModel`/`ModelPrice` numeric fields were
+      unvalidated (unlike `Workload`); a negative/NaN override produced negative
+      dollars / an out-of-range savings pct / an order-undefined sort. Both now
+      validate non-finite/negative at construction + the billing enum.
   - Round-5 (the still-not-deep-audited modules: core invoke loop, loader,
     factory, cli, mockdata). 22 findings → 7 confirmed after independent skeptic
     verification:

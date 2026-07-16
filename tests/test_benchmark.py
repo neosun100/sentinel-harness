@@ -76,12 +76,13 @@ def test_per_invoke_idle_is_free():
 
 
 def test_unknown_billing_shape_raises():
-    bad = ModeModel(
-        key="bad", label="bad", billing="weekly", hourly_usd=1, per_invoke_usd=1,
-        latency_overhead_ms=0, ops_hours_per_month=0, owns_agent_loop=False,
-    )
-    with pytest.raises(ValueError):
-        bm.compute_cost_usd(DEFAULT_WORKLOAD, bad)
+    # round-6: ModeModel.__post_init__ now rejects an unknown billing shape at
+    # CONSTRUCTION (fail at the boundary), not later inside compute_cost_usd.
+    with pytest.raises(ValueError, match="billing"):
+        ModeModel(
+            key="bad", label="bad", billing="weekly", hourly_usd=1, per_invoke_usd=1,
+            latency_overhead_ms=0, ops_hours_per_month=0, owns_agent_loop=False,
+        )
 
 
 # --------------------------------------------------------------------------- #

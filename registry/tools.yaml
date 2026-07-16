@@ -45,6 +45,16 @@ tools:
       UNCOVERED (blind spots) / untagged rules / invalid tags. Conservative — a
       sub-technique tag covers its parent but never the reverse; makes no network calls.
 
+  - name: detection_audit
+    owner: detection-engineering
+    status: approved
+    description: >-
+      Deterministic, LLM-free one-shot health check for a Sigma rule library:
+      aggregates sigma_yara_lint + detection_dedup + detection_coverage into one
+      governance report with a transparent 0-100 health score and a prioritized
+      findings list. Adds no judgement beyond composing the three conservative
+      tools; makes no network calls.
+
   - name: nvd_lookup
     owner: vuln-management
     status: approved

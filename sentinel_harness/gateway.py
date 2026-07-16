@@ -54,17 +54,34 @@ _log = get_logger(__name__)
 # ValidationException — the offline mocks alone would have missed this.) We check it
 # locally so callers get a clear error instead of a server-side round trip.
 _NAME_RE = re.compile(r"^[0-9a-zA-Z]([-]?[0-9a-zA-Z]){0,47}$")
+# The CreateGatewayTarget API accepts a WIDER name pattern than CreateGateway:
+# ([0-9a-zA-Z][-]?){1,100} — up to 100 chars AND a trailing hyphen are allowed.
+# Using the stricter gateway regex for targets falsely rejected service-valid
+# target names (49-100 chars, or a trailing hyphen) before any AWS call.
+_TARGET_NAME_RE = re.compile(r"^([0-9a-zA-Z][-]?){1,100}$")
 
-# Terminal-failure statuses from the GetGateway status enum. READY is success;
-# everything else is transient (CREATING / UPDATING / DELETING).
+# Terminal statuses from the GetGateway status enum. READY is success; a DELETING
+# gateway can NEVER become READY, so it is terminal for a readiness wait too (else
+# wait_gateway_ready polls futilely until timeout and raises a misleading
+# TimeoutError instead of surfacing the real state). CREATING/UPDATING are transient.
 _FAILED_STATUSES = frozenset({"FAILED", "UPDATE_UNSUCCESSFUL"})
+_TERMINAL_NOT_READY = _FAILED_STATUSES | {"DELETING", "DELETE_UNSUCCESSFUL"}
 
 
 def _validate_name(name: str) -> str:
     if not isinstance(name, str) or not _NAME_RE.match(name):
         raise ValueError(
-            f"gateway/target name {name!r} must match {_NAME_RE.pattern} "
+            f"gateway name {name!r} must match {_NAME_RE.pattern} "
             "(alphanumerics with optional single hyphens, no underscores, max 48 chars)."
+        )
+    return name
+
+
+def _validate_target_name(name: str) -> str:
+    if not isinstance(name, str) or not _TARGET_NAME_RE.match(name):
+        raise ValueError(
+            f"gateway target name {name!r} must match {_TARGET_NAME_RE.pattern} "
+            "(alphanumerics with optional single hyphens, no underscores, max 100 chars)."
         )
     return name
 
@@ -270,7 +287,11 @@ def wait_gateway_ready(gateway_id: str, timeout: int = 300) -> dict:
         st = g.get("status")
         if st == "READY":
             return g
-        if st in _FAILED_STATUSES:
+        # Fail fast on ANY status that can never reach READY (FAILED /
+        # UPDATE_UNSUCCESSFUL / DELETING / DELETE_UNSUCCESSFUL) — polling a DELETING
+        # gateway would otherwise stall for the full timeout and raise a misleading
+        # TimeoutError that hides the real terminal state.
+        if st in _TERMINAL_NOT_READY:
             raise RuntimeError(f"{gateway_id} -> {st}: {g.get('statusReasons')}")
         time.sleep(8)  # nosemgrep: arbitrary-sleep -- intentional poll backoff; AWS control-plane is eventually-consistent, loop is timeout-bounded above
     raise TimeoutError(f"{gateway_id} not READY within {timeout}s")
@@ -283,7 +304,7 @@ def create_gateway_target(gateway_id, name, target_config, *,
     ``targetConfiguration`` envelope produced by :func:`lambda_mcp_target` or
     :func:`openapi_http_target` (or hand-built ``{"mcp": {...}}``). Passes through
     verbatim as ``targetConfiguration`` (the service's required member)."""
-    _validate_name(name)
+    _validate_target_name(name)
     args: dict = dict(
         gatewayIdentifier=gateway_id,
         name=name,

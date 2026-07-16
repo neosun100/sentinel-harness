@@ -156,7 +156,15 @@ def update_harness(harness_id, *, system_prompt=None, model=None, tools=None, sk
     if model is not None: args["model"] = model
     if tools is not None: args["tools"] = tools
     if skills is not None: args["skills"] = skills
-    if memory is not None: args["memory"] = memory
+    if memory is not None:
+        # UpdateHarness.memory is UpdatedHarnessMemoryConfiguration — a SINGLE
+        # `optionalValue` member wrapping the same {managed/agentCore/disabled}
+        # structure CreateHarness.memory takes DIRECTLY. The memory builders
+        # (managed_memory/byo_memory) emit the CREATE shape, so the bare dict passes
+        # CreateHarness but ParamValidationErrors on UpdateHarness ("Unknown parameter
+        # in memory: managedMemoryConfiguration, must be one of: optionalValue").
+        # Wrap it here (idempotent: leave an already-wrapped value untouched).
+        args["memory"] = memory if "optionalValue" in memory else {"optionalValue": memory}
     if allowed_tools is not None: args["allowedTools"] = allowed_tools
     if max_iterations is not None: args["maxIterations"] = max_iterations
     if max_tokens is not None: args["maxTokens"] = max_tokens

@@ -64,6 +64,15 @@ tools:
       blind spots red, each annotated with the detecting rule(s). A thin faithful
       renderer — inherits detection_coverage's conservative semantics; no network calls.
 
+  - name: detection_baseline
+    owner: detection-engineering
+    status: approved
+    description: >-
+      Deterministic, LLM-free regression gate for a Sigma rule library: snapshot a
+      detection_audit health baseline, then compare a later audit against it and flag
+      a regression (health-score drop, or a NEW invalid rule / uncovered technique /
+      duplicate pair). Set-diff catches churn a scalar score hides; no network calls.
+
   - name: nvd_lookup
     owner: vuln-management
     status: approved

@@ -27,6 +27,7 @@ retries match the rest of the library.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
 
 from .core import _control
@@ -34,9 +35,15 @@ from .core import _control
 # Descriptor types the live Registry accepts (verified against the service model).
 DESCRIPTOR_TYPES = ("MCP", "A2A", "CUSTOM", "AGENT_SKILLS")
 
-# clientToken has a min length of 33 (same class of constraint as a harness
-# session id). We derive a deterministic-per-name token unless one is supplied.
+# clientToken shape (verified against the bedrock-agentcore-control model): pattern
+# `[a-zA-Z0-9](-*[a-zA-Z0-9]){0,256}` (alphanumerics + hyphens ONLY, no trailing
+# hyphen), min length 33, max length 256. Resource NAMES allow a wider charset
+# (underscore/dot/slash), so a token that embeds a raw name verbatim can violate the
+# token pattern — and botocore does NOT check string patterns client-side, so it
+# fails only on the live call. We derive a deterministic-per-name token unless one
+# is supplied, sanitized to the token charset and bounded on BOTH ends.
 _MIN_CLIENT_TOKEN = 33
+_MAX_CLIENT_TOKEN = 256
 
 
 class RegistryLiveError(RuntimeError):
@@ -44,14 +51,21 @@ class RegistryLiveError(RuntimeError):
 
 
 def _client_token(seed: str) -> str:
-    """Build a >=33-char idempotency token from a seed (deterministic per seed).
+    """Build a deterministic, pattern-valid idempotency token from a seed.
 
-    A caller-stable token makes ``create_*`` idempotent across retries; we pad a
-    namespaced seed so it always clears the API's 33-char minimum.
-    """
+    A caller-stable token makes ``create_*`` idempotent across retries. The seed
+    often embeds a resource name, which may contain underscore/dot/slash — all
+    ILLEGAL in a clientToken — so we sanitize to ``[A-Za-z0-9-]`` (collapsing runs
+    of illegal chars to a single hyphen), pad to the 33-char minimum, and cap at the
+    256-char maximum. The result always matches the ClientToken pattern and length."""
     base = f"sentinel-{seed}-idempotency"
+    # Collapse any run of non-[A-Za-z0-9] to a single hyphen; strip leading/trailing
+    # hyphens (the pattern forbids a trailing hyphen and requires an alnum start).
+    base = re.sub(r"[^A-Za-z0-9]+", "-", base).strip("-") or "sentinel"
     if len(base) < _MIN_CLIENT_TOKEN:
-        base = base + "-" + "0" * (_MIN_CLIENT_TOKEN - len(base))
+        base = base + "-" + "0" * (_MIN_CLIENT_TOKEN - len(base) - 1)
+    if len(base) > _MAX_CLIENT_TOKEN:
+        base = base[:_MAX_CLIENT_TOKEN].rstrip("-")
     return base
 
 

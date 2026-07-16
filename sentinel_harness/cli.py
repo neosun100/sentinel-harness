@@ -425,6 +425,86 @@ def _print_audit_report(result: dict) -> None:
         print("No findings — clean.")
 
 
+def _audit_directory(directory: str, techniques):
+    """Collect Sigma rules under ``directory`` and run detection_audit.
+
+    Returns ``(rc, result)``: on a rule-collection/empty/audit error rc is 2 and
+    result is None; otherwise rc is 0 and result is the audit dict."""
+    try:
+        rules = _collect_sigma_rules(directory)
+    except (NotADirectoryError, OSError) as exc:
+        _eprint(f"detection: {exc}")
+        return 2, None
+    if not rules:
+        _eprint(f"detection: no .yml/.yaml Sigma rules found under {directory!r}")
+        return 2, None
+    event = {"rules": rules}
+    if techniques is not None:
+        event["techniques"] = techniques
+    result = _load_tool_handler("detection_audit").handler(event, None)
+    if not result.get("ok"):
+        _eprint(f"detection: {result.get('message', 'audit failed')}")
+        return 2, None
+    return 0, result
+
+
+def cmd_detection_baseline(args: argparse.Namespace) -> int:
+    """Snapshot or compare a rule-library health baseline (regression gate).
+
+    ``--snapshot OUT`` writes a baseline JSON for DIRECTORY's current audit.
+    Otherwise DIRECTORY is compared against ``--against BASELINE`` and the command
+    exits non-zero if the library REGRESSED (score drop beyond --allow-score-drop,
+    or a new invalid rule / uncovered technique / duplicate pair)."""
+    techniques = None
+    if args.techniques:
+        techniques = [t.strip().upper() for t in args.techniques.split(",") if t.strip()]
+    rc, audit = _audit_directory(args.directory, techniques)
+    if rc != 0:
+        return rc
+
+    baseline_tool = _load_tool_handler("detection_baseline")
+
+    if args.snapshot is not None:
+        snap = baseline_tool.handler({"mode": "snapshot", "audit": audit}, None)
+        if not snap.get("ok"):
+            _eprint(f"detection baseline: {snap.get('message')}")
+            return 2
+        out = None if args.snapshot == "-" else args.snapshot
+        _emit_json(snap["baseline"], out)
+        return 0
+
+    # compare mode requires --against
+    if not args.against:
+        _eprint("detection baseline: pass --snapshot OUT to create a baseline, or "
+                "--against BASELINE to compare against one")
+        return 2
+    try:
+        with open(args.against, "r", encoding="utf-8") as fh:
+            baseline = json.load(fh)
+    except (OSError, ValueError) as exc:
+        _eprint(f"detection baseline: could not read baseline {args.against!r}: {exc}")
+        return 2
+    cmp = baseline_tool.handler({
+        "mode": "compare", "audit": audit, "baseline": baseline,
+        "allow_score_drop": args.allow_score_drop,
+    }, None)
+    if not cmp.get("ok"):
+        _eprint(f"detection baseline: {cmp.get('message')}")
+        return 2
+
+    if args.json:
+        _emit_json(cmp, None)
+    else:
+        print(f"Baseline compare: health {cmp['baseline']['health_score']} -> "
+              f"{cmp['current']['health_score']} (delta {cmp['health_delta']})")
+        for imp in cmp["improvements"]:
+            print(f"  + {imp}")
+        for r in cmp["reasons"]:
+            print(f"  ! {r}")
+        print("REGRESSED" if cmp["regressed"] else "OK (no regression)")
+    return 1 if cmp["regressed"] else 0
+
+
 # ------------------------------------------------------------------------- parser
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -506,6 +586,31 @@ def build_parser() -> argparse.ArgumentParser:
     da.add_argument("--min-score", type=int, metavar="N",
                     help="exit non-zero if health_score < N (CI gate)")
     da.set_defaults(func=cmd_detection_audit)
+
+    # `sentinel detection baseline <dir>` — regression gate: snapshot a health
+    # baseline, or compare against one and fail on degradation.
+    db = det_sub.add_parser(
+        "baseline",
+        help="snapshot or compare a rule-library health baseline (regression gate)",
+        description=(
+            "Snapshot DIRECTORY's current detection_audit health as a baseline "
+            "(--snapshot OUT), or compare DIRECTORY against a saved baseline "
+            "(--against BASELINE) and exit non-zero if the library REGRESSED (health "
+            "drop beyond --allow-score-drop, or a new invalid rule / uncovered "
+            "technique / duplicate pair). Deterministic; offline."
+        ),
+    )
+    db.add_argument("directory", help="directory of Sigma rule files (.yml/.yaml, recursive)")
+    db.add_argument("--techniques",
+                    help="comma-separated target ATT&CK technique ids (must match the baseline's)")
+    db.add_argument("--snapshot", nargs="?", const="-", metavar="OUT",
+                    help="write a baseline snapshot (to OUT file, or stdout) instead of comparing")
+    db.add_argument("--against", metavar="BASELINE",
+                    help="compare against this baseline JSON file (created by --snapshot)")
+    db.add_argument("--allow-score-drop", type=int, default=0, metavar="N",
+                    help="tolerate a health-score decrease of up to N (default 0)")
+    db.add_argument("--json", action="store_true", help="emit the raw compare JSON")
+    db.set_defaults(func=cmd_detection_baseline)
 
     return p
 

@@ -24,6 +24,7 @@
  * A CfnGuardrailVersion pins an immutable snapshot the runtime references by
  * `guardrailIdentifier` + `guardrailVersion` (the ApplyGuardrail request needs both).
  */
+import * as crypto from "crypto";
 import { Stack, StackProps, CfnOutput } from "aws-cdk-lib";
 import { CfnGuardrail, CfnGuardrailVersion } from "aws-cdk-lib/aws-bedrock";
 import { Construct } from "constructs";
@@ -60,6 +61,35 @@ export class GuardrailStack extends Stack {
     const ghpPrefix = "gh" + "p_"; // GitHub personal access token prefix
     const genericTokenPattern = `(?:${skPrefix}|${ghpPrefix})[A-Za-z0-9_]{20,}`;
 
+    // The sensitive-information policy — extracted so its content can be HASHED into
+    // the pinned version's description (see below). Any edit here changes the hash.
+    const sensitiveInformationPolicyConfig = {
+      // Managed PII detectors. A live secret access key must never round-trip, so
+      // BLOCK it; ordinary contact PII is ANONYMIZEd so casework text still flows.
+      piiEntitiesConfig: [
+        { type: "AWS_SECRET_KEY", action: "BLOCK" },
+        { type: "EMAIL", action: "ANONYMIZE" },
+        { type: "NAME", action: "ANONYMIZE" },
+      ],
+      // Custom secret-shape matchers the managed detectors don't fully cover.
+      regexesConfig: [
+        {
+          name: "aws-access-key-id",
+          description:
+            "Masks AWS access key id shaped strings (A[KS]IA + 16 upper/digit chars) leaking through a tool response.",
+          pattern: awsAccessKeyIdPattern,
+          action: "ANONYMIZE",
+        },
+        {
+          name: "generic-api-token",
+          description:
+            "Masks generic long-lived API tokens (sk-… / ghp_… style prefixes) leaking through a tool response.",
+          pattern: genericTokenPattern,
+          action: "ANONYMIZE",
+        },
+      ],
+    };
+
     this.guardrail = new CfnGuardrail(this, "Guardrail", {
       name: `${props.appName}-secret-pii-guardrail`,
       description:
@@ -70,32 +100,7 @@ export class GuardrailStack extends Stack {
       // Shown when a model/tool OUTPUT is blocked before it reaches the caller.
       blockedOutputsMessaging:
         "The response was withheld because it contained sensitive credentials or protected information.",
-      sensitiveInformationPolicyConfig: {
-        // Managed PII detectors. A live secret access key must never round-trip, so
-        // BLOCK it; ordinary contact PII is ANONYMIZEd so casework text still flows.
-        piiEntitiesConfig: [
-          { type: "AWS_SECRET_KEY", action: "BLOCK" },
-          { type: "EMAIL", action: "ANONYMIZE" },
-          { type: "NAME", action: "ANONYMIZE" },
-        ],
-        // Custom secret-shape matchers the managed detectors don't fully cover.
-        regexesConfig: [
-          {
-            name: "aws-access-key-id",
-            description:
-              "Masks AWS access key id shaped strings (A[KS]IA + 16 upper/digit chars) leaking through a tool response.",
-            pattern: awsAccessKeyIdPattern,
-            action: "ANONYMIZE",
-          },
-          {
-            name: "generic-api-token",
-            description:
-              "Masks generic long-lived API tokens (sk-… / ghp_… style prefixes) leaking through a tool response.",
-            pattern: genericTokenPattern,
-            action: "ANONYMIZE",
-          },
-        ],
-      },
+      sensitiveInformationPolicyConfig,
     });
 
     this.guardrailId = this.guardrail.attrGuardrailId;
@@ -103,9 +108,23 @@ export class GuardrailStack extends Stack {
 
     // Immutable published snapshot. The runtime ApplyGuardrail call needs both the
     // identifier and a concrete version; pin one here rather than tracking DRAFT.
+    //
+    // The description embeds a HASH of the policy config. CfnGuardrailVersion's only
+    // real inputs are guardrailIdentifier (a stable token that does NOT change when
+    // the parent guardrail's policy is edited in place) + description; without the
+    // hash, tightening the policy (e.g. ANONYMIZE→BLOCK, or a new PII type) and
+    // redeploying would produce ZERO diff on this resource, so CFN would mint NO new
+    // version and the runtime (pinned to attrVersion) would keep enforcing the STALE
+    // snapshot — a silently no-op security control (audited). Hashing the policy into
+    // the description forces a new immutable version on any policy change.
+    const policyHash = crypto
+      .createHash("sha256")
+      .update(JSON.stringify(sensitiveInformationPolicyConfig))
+      .digest("hex")
+      .slice(0, 12);
     this.guardrailVersion = new CfnGuardrailVersion(this, "GuardrailVersion", {
       guardrailIdentifier: this.guardrailId,
-      description: "Pinned snapshot of the Sentinel secret/PII screen.",
+      description: `Pinned snapshot of the Sentinel secret/PII screen (policy ${policyHash}).`,
     });
 
     new CfnOutput(this, "GuardrailId", {

@@ -299,14 +299,20 @@ def _check_condition_refs(condition: str, selections: set) -> List[str]:
 # YARA linter (lightweight structural check)
 # --------------------------------------------------------------------------
 def _strip_yara_noise(content: str) -> str:
-    """Return ``content`` with double-quoted strings, ``//`` and ``/* */`` comments
-    blanked out (replaced by spaces, preserving length/newlines).
+    """Return ``content`` with the spans that may hold non-structural braces blanked
+    (replaced by spaces, newlines preserved): double-quoted strings, ``//`` and
+    ``/* */`` comments, hex-string blocks ``{ .. }``, and ``/regex/`` literals.
 
-    WHY: brace balancing must count only STRUCTURAL braces. A YARA string literal
-    can legitimately contain ``{``/``}`` (e.g. a Log4Shell ``"${jndi:ldap"``
-    content match), and a comment can too; counting those produced false
-    'unbalanced braces' errors on valid rules. A tiny state machine skips string
-    and comment spans. Regex-free (no catastrophic-backtrack risk)."""
+    WHY: brace balancing and rule-body extraction must see only STRUCTURAL braces
+    (a rule's own ``{ }``). A YARA string can hold ``{``/``}`` (``"${jndi:ldap"``),
+    a comment can, a hex string IS ``{ E2 34 }``, and a regex literal can (``/a}b/``)
+    — counting or extracting across those produced false 'unbalanced braces' /
+    'missing condition' errors on valid rules. A tiny state machine skips every such
+    span. Regex-free (no catastrophic-backtrack risk).
+
+    Hex-string braces are blanked to SPACES (dropped from the structural count) since
+    they are a self-contained token, not a rule delimiter; this keeps both the
+    balance count and the depth-based body extraction correct."""
     out: List[str] = []
     i, n = 0, len(content)
     in_str = False
@@ -342,9 +348,81 @@ def _strip_yara_noise(content: str) -> str:
             out.append("  ")
             i += 2
             continue
+        # A YARA regex literal /.../ (YARA has no division, so a bare '/' that is
+        # not a comment starts a regex). Blank through the closing unescaped '/'.
+        if ch == "/":
+            out.append(" ")
+            i += 1
+            r_esc = False
+            while i < n:
+                rc = content[i]
+                out.append("\n" if rc == "\n" else " ")
+                i += 1
+                if r_esc:
+                    r_esc = False
+                elif rc == "\\":
+                    r_esc = True
+                elif rc == "/":
+                    break
+            continue
+        # A hex-string block '{ ... }' holds hex bytes / wildcards, not structural
+        # braces. Blank the whole span (braces included) so it drops out of both the
+        # balance count and body extraction. Only treat '{' as a hex block when it is
+        # NOT the rule-body opener: a hex block's brace is preceded (ignoring space)
+        # by '=' ; the rule body's '{' follows a rule header. We detect a hex block by
+        # scanning its content — only hex digits, whitespace, and the wildcard/jump
+        # tokens [] ? - ( ) | . If anything else appears it is a real body, kept.
+        if ch == "{":
+            j = i + 1
+            ok = True
+            depth = 0
+            while j < n:
+                cj = content[j]
+                if cj == "}" and depth == 0:
+                    break
+                if cj in "([":
+                    depth += 1
+                elif cj in ")]":
+                    depth = max(0, depth - 1)
+                elif not (cj.isspace() or cj in "0123456789abcdefABCDEF?-|.~"):
+                    ok = False
+                    break
+                j += 1
+            if ok and j < n and content[j] == "}":
+                # blank the hex block inclusive of both braces
+                for k in range(i, j + 1):
+                    out.append("\n" if content[k] == "\n" else " ")
+                i = j + 1
+                continue
         out.append(ch)
         i += 1
     return "".join(out)
+
+
+def _extract_rule_body(structural: str, name: str) -> str:
+    """Return the body between a rule's opening ``{`` and its MATCHING ``}`` via
+    brace-depth counting on the already-noise-stripped text.
+
+    A non-greedy ``\\{(.*?)\\}`` regex stopped at the first ``}`` — which, once hex
+    blocks/regexes are stripped, is usually fine, but depth-matching is robust to
+    any nested structural braces and is what makes the 'missing condition' check
+    trustworthy. Returns '' if the rule header/body cannot be located."""
+    m = re.search(r"\brule\s+" + re.escape(name) + r"\s*(?::[^{]*)?\{", structural)
+    if not m:
+        return ""
+    start = m.end()  # first char after the opening '{'
+    depth = 1
+    i, n = start, len(structural)
+    while i < n and depth > 0:
+        c = structural[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return structural[start:i]
+        i += 1
+    return structural[start:]  # unbalanced — caller already flags the imbalance
 
 
 def _lint_yara(content: str) -> Tuple[List[str], List[str]]:
@@ -371,12 +449,7 @@ def _lint_yara(content: str) -> Tuple[List[str], List[str]]:
         return errors, warnings
 
     for name in rule_headers:
-        body_match = re.search(
-            r"\brule\s+" + re.escape(name) + r"\s*(?::[^{]*)?\{(.*?)\}",
-            structural,
-            re.DOTALL,
-        )
-        body = body_match.group(1) if body_match else ""
+        body = _extract_rule_body(structural, name)
         if "condition:" not in body:
             errors.append(f"rule {name!r} is missing a 'condition:' section")
         if "strings:" not in body and "$" in body:
@@ -417,6 +490,70 @@ def _split_suricata_rules(content: str) -> List[str]:
     return joined
 
 
+def _split_suricata_options(options: str) -> List[Tuple[str, str]]:
+    """Split a Suricata option block into (key, value) pairs, QUOTE-AWARE.
+
+    A ``;`` only separates options when it is OUTSIDE a double-quoted value (a
+    ``msg:"foo; bar"`` holds a literal ``;`` that must NOT split the option), and a
+    ``:`` only separates key from value at the FIRST unquoted colon. Backslash
+    escapes inside a quote are honored. This replaces the naive ``options.split(';')``
+    that let ``msg:"...; sid:1;"`` fake a sid/rev and mis-parsed keys."""
+    pairs: List[Tuple[str, str]] = []
+    buf: List[str] = []
+    in_str = False
+    esc = False
+    for ch in options:
+        if in_str:
+            buf.append(ch)
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+            buf.append(ch)
+        elif ch == ";":
+            opt = "".join(buf).strip()
+            if opt:
+                key, sep, val = opt.partition(":")
+                pairs.append((key.strip().lower(), val.strip() if sep else ""))
+            buf = []
+        else:
+            buf.append(ch)
+    tail = "".join(buf).strip()
+    if tail:
+        key, sep, val = tail.partition(":")
+        pairs.append((key.strip().lower(), val.strip() if sep else ""))
+    return pairs
+
+
+def _strip_suricata_quoted(rule: str) -> str:
+    """Blank double-quoted spans in a Suricata rule (spaces, length preserved) so a
+    balance count of ``(``/``)`` ignores parens inside a quoted ``msg``/``pcre``.
+    Honors backslash escapes."""
+    out: List[str] = []
+    in_str = False
+    esc = False
+    for ch in rule:
+        if in_str:
+            out.append(" ")
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+            out.append(" ")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def _lint_suricata(content: str) -> Tuple[List[str], List[str]]:
     """Structurally lint one or more Suricata rules. PURE, deterministic.
 
@@ -438,17 +575,21 @@ def _lint_suricata(content: str) -> Tuple[List[str], List[str]]:
 
     for idx, rule in enumerate(rules, 1):
         tag = f"rule {idx}" if len(rules) > 1 else "rule"
-        # Balanced option-block parentheses.
-        if rule.count("(") != rule.count(")"):
+        # Balanced option-block parentheses — count only parens OUTSIDE quoted
+        # values (a ':-(' in a quoted msg or a '(' in a pcre must not count).
+        unquoted = _strip_suricata_quoted(rule)
+        if unquoted.count("(") != unquoted.count(")"):
             errors.append(f"{tag}: unbalanced parentheses in option block")
             continue
-        open_paren = rule.find("(")
-        if open_paren == -1 or not rule.rstrip().endswith(")"):
+        open_paren = unquoted.find("(")
+        if open_paren == -1 or not unquoted.rstrip().endswith(")"):
             errors.append(f"{tag}: missing '( ... )' option block")
             continue
 
         header = rule[:open_paren].strip()
-        options = rule[open_paren + 1: rule.rstrip().rfind(")")]
+        # Option block interior taken from the ORIGINAL rule (quotes intact) using
+        # the quote-aware open/close positions computed on the blanked text.
+        options = rule[open_paren + 1: unquoted.rstrip().rfind(")")]
 
         # Header: action proto src sport <dir> dst dport  → >= 7 tokens.
         htoks = header.split()
@@ -468,19 +609,19 @@ def _lint_suricata(content: str) -> Tuple[List[str], List[str]]:
                 f"got {len(htoks)} tokens"
             )
 
-        # Required options. Split on ';' (Suricata option separator).
-        opt_names = {
-            o.split(":", 1)[0].strip().lower()
-            for o in options.split(";") if o.strip()
-        }
+        # Required options — parsed QUOTE-AWARE so a ';' inside a quoted value does
+        # not fabricate an option and a ':' inside a value is not read as a key.
+        opts = _split_suricata_options(options)
+        opt_names = {k for k, _ in opts}
         for req in _SURICATA_REQUIRED_OPTS:
             if req not in opt_names:
                 errors.append(f"{tag}: missing required option '{req}'")
 
-        # sid must be numeric when present.
-        m = re.search(r"\bsid\s*:\s*([^;]+)", options)
-        if m and not m.group(1).strip().isdigit():
-            errors.append(f"{tag}: 'sid' must be numeric, got {m.group(1).strip()!r}")
+        # sid must be numeric when present — read the value from the parsed options
+        # (the REAL sid key), not a regex over raw text that could match 'sid:' in msg.
+        sid_vals = [v for k, v in opts if k == "sid"]
+        if sid_vals and not sid_vals[0].isdigit():
+            errors.append(f"{tag}: 'sid' must be numeric, got {sid_vals[0]!r}")
 
         if "classtype" not in opt_names:
             warnings.append(f"{tag}: no 'classtype' option (recommended for triage)")

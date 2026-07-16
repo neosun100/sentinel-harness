@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 **M13 — world-class depth + adversarial hardening.** Additive on top of M0–M12
-(no live-validated code rewritten). Test suite **1742 → 2087 offline passing**.
+(no live-validated code rewritten). Test suite **1742 → 2126 offline passing**.
 
 ### Added
 - **Deployment benchmark** (`sentinel_harness/benchmark.py`) — deterministic
@@ -45,9 +45,28 @@ All notable changes to this project are documented here. The format is based on
   list rather than silently dropped. Registered + governance-approved.
 
 ### Fixed
-- **Adversarial audit remediation:** two hostile-finder/skeptic-verifier rounds
-  cleared **42 confirmed defects** total (round-1: 20; round-2: 22 — 4 HIGH, 14
-  MED, 4 LOW), each with a regression test.
+- **Adversarial audit remediation:** three hostile-finder/skeptic-verifier rounds
+  cleared **59 confirmed defects** total (round-1: 20; round-2: 22; round-3: 17),
+  each with a regression test.
+  - Round-3 (the brand-new detection-engineering code — `detection_translate` +
+    Suricata linting — audited hardest because it had only passed its author's
+    tests). Two defect classes:
+    - **Translator output-injection** — a Sigma value or title containing the
+      target grammar's metacharacters (`"`, newline, `;`, `|`, `(`) broke out of
+      the emitted YARA/Suricata literal. Now grammar-escaped: YARA `\xHH`/`\n`
+      escaping, Suricata `content:` hex-encoding (`a|b` → `a|7C|b`) and msg
+      escaping. A leading-digit Sigma title (`4625 brute force`) yielded an
+      illegal YARA rule name → prefixed `r_`.
+    - **Lossy-marked-faithful** — `condition: ... and not filter` (negation
+      inverts exclude→include), the `|all` aggregator, and null/empty values were
+      silently emitted as faithful; all now routed to the `untranslatable` ledger.
+    - **Linter false-rejections** — the Suricata option parser split on a `;`
+      inside a quoted `msg` (faking sid/rev) and counted parens inside a quoted
+      value; the YARA checker counted braces inside hex-strings/regex literals and
+      truncated bodies at the first `}`. All now quote-/span-aware (new
+      `_split_suricata_options`, `_strip_suricata_quoted`, `_extract_rule_body`,
+      hex/regex spans stripped in `_strip_yara_noise`), with a `translate → lint`
+      round-trip property test sweeping a title × value hostile matrix.
   - Round-1: safety-gate bypasses (refusal-marker evasion, nested
     `dimensions`-key veto skip), a NaN/non-finite score crash, tracing
     `BaseException` stack corruption, SIEM DSL injection (SPL/AQL/KQL value

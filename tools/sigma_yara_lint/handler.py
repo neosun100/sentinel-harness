@@ -298,27 +298,82 @@ def _check_condition_refs(condition: str, selections: set) -> List[str]:
 # --------------------------------------------------------------------------
 # YARA linter (lightweight structural check)
 # --------------------------------------------------------------------------
+def _strip_yara_noise(content: str) -> str:
+    """Return ``content`` with double-quoted strings, ``//`` and ``/* */`` comments
+    blanked out (replaced by spaces, preserving length/newlines).
+
+    WHY: brace balancing must count only STRUCTURAL braces. A YARA string literal
+    can legitimately contain ``{``/``}`` (e.g. a Log4Shell ``"${jndi:ldap"``
+    content match), and a comment can too; counting those produced false
+    'unbalanced braces' errors on valid rules. A tiny state machine skips string
+    and comment spans. Regex-free (no catastrophic-backtrack risk)."""
+    out: List[str] = []
+    i, n = 0, len(content)
+    in_str = False
+    esc = False
+    while i < n:
+        ch = content[i]
+        if in_str:
+            out.append(" ")
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            i += 1
+            continue
+        # not in a string: check for comment starts
+        if ch == '"':
+            in_str = True
+            out.append(" ")
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n and content[i + 1] == "/":
+            while i < n and content[i] != "\n":
+                out.append(" ")
+                i += 1
+            continue
+        if ch == "/" and i + 1 < n and content[i + 1] == "*":
+            while i < n and not (content[i] == "*" and i + 1 < n and content[i + 1] == "/"):
+                out.append("\n" if content[i] == "\n" else " ")
+                i += 1
+            # blank the closing */ too (if present)
+            out.append("  ")
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _lint_yara(content: str) -> Tuple[List[str], List[str]]:
     errors: List[str] = []
     warnings: List[str] = []
 
-    open_braces = content.count("{")
-    close_braces = content.count("}")
+    # Count only STRUCTURAL braces (strings/comments blanked) so a brace inside a
+    # string literal (e.g. "${jndi:ldap") is not a false imbalance.
+    structural = _strip_yara_noise(content)
+    open_braces = structural.count("{")
+    close_braces = structural.count("}")
     if open_braces != close_braces:
         errors.append(
             f"unbalanced braces: {open_braces} '{{' vs {close_braces} '}}'"
         )
 
-    rule_headers = re.findall(r"\brule\s+([A-Za-z_]\w*)\s*(?::[^{]*)?\{", content)
+    # Header + body extraction run on the STRUCTURAL text (strings/comments blanked)
+    # so a '{' or '}' inside a string/comment cannot truncate a rule body — the
+    # keywords 'condition:'/'strings:' and '$' refs survive blanking (they are not
+    # inside string literals), so presence checks stay accurate.
+    rule_headers = re.findall(r"\brule\s+([A-Za-z_]\w*)\s*(?::[^{]*)?\{", structural)
     if not rule_headers:
         errors.append("no 'rule <name> { ... }' block found")
         return errors, warnings
 
-    # Split into rule bodies to inspect each.
     for name in rule_headers:
         body_match = re.search(
             r"\brule\s+" + re.escape(name) + r"\s*(?::[^{]*)?\{(.*?)\}",
-            content,
+            structural,
             re.DOTALL,
         )
         body = body_match.group(1) if body_match else ""

@@ -53,7 +53,13 @@ function testGuardrail(t: Template): void {
 
 function testVersion(t: Template): void {
   t.resourceCountIs("AWS::Bedrock::GuardrailVersion", 1);
-  console.log("[guardrail] pinned-version assertions passed");
+  // round-8: the pinned version's Description must embed a POLICY HASH so a policy
+  // edit changes this resource and CFN mints a NEW immutable version (otherwise the
+  // runtime keeps enforcing a stale snapshot). Assert the hash marker is present.
+  t.hasResourceProperties("AWS::Bedrock::GuardrailVersion", {
+    Description: Match.stringLikeRegexp("policy [0-9a-f]{12}"),
+  });
+  console.log("[guardrail] pinned-version + policy-hash assertions passed");
 }
 
 function testOutputs(t: Template): void {

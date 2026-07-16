@@ -47,6 +47,19 @@ const ACTIONS = {
   get: "GetRegistryCommand",
 };
 
+// AgentCore Create*/Update* dedupe on a clientToken that must be >=33 chars (see
+// sentinel_harness/registry_live.py and the API-quirks note). Derive it
+// deterministically from the CFN RequestId so a provider-framework RETRY of the
+// same logical request reuses the SAME token (server-side idempotency) instead of
+// double-creating or hitting ConflictException. Pad short/empty ids to the floor.
+const MIN_CLIENT_TOKEN = 33;
+function makeClientToken(requestId) {
+  const base = `sentinel-registry-cr-${String(requestId || "")}`;
+  return base.length >= MIN_CLIENT_TOKEN
+    ? base
+    : base + "-".repeat(MIN_CLIENT_TOKEN - base.length);
+}
+
 function loadControl() {
   // The Node 20 Lambda runtime bundles only the STANDARD AWS SDK v3 clients;
   // `@aws-sdk/client-bedrock-agentcore-control` is NOT among them, so it must be
@@ -83,12 +96,41 @@ exports.handler = async function handler(event) {
   // AutoApproval arrives as a string over the CFN boundary; coerce explicitly.
   const autoApproval = String(props.AutoApproval) === "true";
 
-  const { mod, client } = loadControl();
+  // Deterministic idempotency token derived from the CFN RequestId (stable across
+  // provider-framework retries of the SAME logical request). AgentCore Create*/Update*
+  // dedupe on a >=33-char clientToken (see sentinel_harness/registry_live.py); without
+  // it a retry after a lost response / timeout raises ConflictException or double-acts.
+  const clientToken = makeClientToken(event.RequestId);
 
   switch (event.RequestType) {
+    case "Delete": {
+      // loadControl() must be INSIDE this branch (not before the switch): during a
+      // create-rollback CFN sends a Delete; if the SDK client is unbundled, a throw
+      // before the switch would wedge the stack in DELETE_FAILED. A Delete for a
+      // registry that was never really created is a successful no-op.
+      const registryId = event.PhysicalResourceId;
+      let control;
+      try {
+        control = loadControl();
+      } catch (err) {
+        // SDK unavailable during rollback: nothing was created, so treat as no-op.
+        return { PhysicalResourceId: String(registryId) };
+      }
+      try {
+        await control.client.send(
+          new control.mod[ACTIONS.delete]({ registryIdentifier: registryId }),
+        );
+      } catch (err) {
+        // A missing/already-deleted registry must not fail the stack rollback.
+        const notFound = err && (err.name === "ResourceNotFoundException" || err.$metadata?.httpStatusCode === 404);
+        if (!notFound) throw err;
+      }
+      return { PhysicalResourceId: String(registryId) };
+    }
     case "Create": {
+      const { mod, client } = loadControl();
       const out = await client.send(
-        new mod[ACTIONS.create]({ name, description, autoApproval }),
+        new mod[ACTIONS.create]({ name, description, autoApproval, clientToken }),
       );
       // CreateRegistry output field is registryArn (confirmed live 2026-07); the
       // capitalized fallbacks are defensive only.
@@ -100,26 +142,34 @@ exports.handler = async function handler(event) {
       };
     }
     case "Update": {
+      const { mod, client } = loadControl();
       const registryId = event.PhysicalResourceId;
+      // registryName is immutable on UpdateRegistry (it takes only description +
+      // autoApproval). If the caller changed Name, an in-place Update would silently
+      // NO-OP the rename and CFN would report UPDATE_COMPLETE against stale reality.
+      // Detect that and force a REPLACE by returning a new PhysicalResourceId so the
+      // framework does Create(new)+Delete(old) instead of a misleading no-op update.
+      const oldName = String((event.OldResourceProperties || {}).Name || "");
+      if (name && oldName && name !== oldName) {
+        const out = await client.send(
+          new mod[ACTIONS.create]({ name, description, autoApproval, clientToken }),
+        );
+        const newArn = out.registryArn || out.RegistryArn;
+        const newId = out.registryId || out.RegistryId || name;
+        // A changed PhysicalResourceId triggers the framework to Delete the old one.
+        return {
+          PhysicalResourceId: String(newId),
+          Data: { RegistryArn: String(newArn || ""), RegistryId: String(newId) },
+        };
+      }
       const out = await client.send(
-        new mod[ACTIONS.update]({ registryIdentifier: registryId, description, autoApproval }),
+        new mod[ACTIONS.update]({ registryIdentifier: registryId, description, autoApproval, clientToken }),
       );
       const registryArn = out.registryArn || out.RegistryArn;
       return {
         PhysicalResourceId: String(registryId),
         Data: { RegistryArn: String(registryArn || ""), RegistryId: String(registryId) },
       };
-    }
-    case "Delete": {
-      const registryId = event.PhysicalResourceId;
-      try {
-        await client.send(new mod[ACTIONS.delete]({ registryIdentifier: registryId }));
-      } catch (err) {
-        // A missing/already-deleted registry must not fail the stack rollback.
-        const notFound = err && (err.name === "ResourceNotFoundException" || err.$metadata?.httpStatusCode === 404);
-        if (!notFound) throw err;
-      }
-      return { PhysicalResourceId: String(registryId) };
     }
     default:
       throw new Error(`Unsupported RequestType: ${event.RequestType}`);

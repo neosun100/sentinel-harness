@@ -33,7 +33,12 @@ help: ## List available targets (default).
 	@echo "OFFLINE (no AWS): ci test lint synth seed-registry create-harnesses smoke demo clean"
 	@echo "TOUCHES AWS (confirm prompt): deploy deploy-endpoints reset destroy"
 
-ci: ## Run the FULL CI gate locally, mirroring .github/workflows/ci.yml exactly.
+ci: ## Run the core CI gates locally (lint · coverage>=88 · iac synth · secret-scan). NOTE: the mypy type-gate and the iac-cdk/test/*.test.ts stack tests run in CI only.
+	# Mirrors the lint/test/synth/scan gates of .github/workflows/ci.yml. It does NOT
+	# run two CI-only gates: the `mypy` job (5 core control-plane modules) and the
+	# `iac` job's `ts-node` stack-assertion tests (iac-cdk/test/*.test.ts). A green
+	# `make ci` therefore does not guarantee green CI on those two — run them if you
+	# touched typed core modules or the CDK stacks.
 	# 1) Lint — REQUIRED, pinned to the same ruff CI + pre-commit run.
 	uv run --no-project --python 3.13 --with ruff==0.15.20 ruff check .
 	# 2) Coverage-gated tests (offline; branch coverage; fails under the 88 floor
@@ -45,7 +50,8 @@ ci: ## Run the FULL CI gate locally, mirroring .github/workflows/ci.yml exactly.
 		--with coverage --with hypothesis --with boto3 --with pyyaml --with . \
 		python -m coverage run -m pytest -q tests
 	uv run --no-project --python 3.13 --with coverage python -m coverage report --fail-under=88
-	# 3) IaC — tsc type-check + cdk synth (same as the `iac` CI job).
+	# 3) IaC — tsc type-check + cdk synth. (The `iac` CI job ALSO runs the
+	#    iac-cdk/test/*.test.ts stack tests via ts-node; those are CI-only here.)
 	cd iac-cdk && npx tsc --noEmit && npx cdk synth >/dev/null
 	# 4) Public-repo hygiene — the single shared secret/name scan (invoked via
 	#    bash so it runs regardless of the script's executable bit).

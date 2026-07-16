@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 **M13 — world-class depth + adversarial hardening.** Additive on top of M0–M12
-(no live-validated code rewritten). Test suite **1742 → 2273 offline passing**.
+(no live-validated code rewritten). Test suite **1742 → 2284 offline passing**.
 
 ### Added
 - **Deployment benchmark** (`sentinel_harness/benchmark.py`) — deterministic
@@ -75,11 +75,48 @@ All notable changes to this project are documented here. The format is based on
   executive-ready coverage heat-map. A thin faithful renderer — inherits
   `detection_coverage`'s conservative sub-technique semantics; no network calls.
   Registered + governance-approved.
+- **`sentinel detection audit <dir>` CLI subcommand** — brings the whole detection
+  suite to the command line: reads every `.yml`/`.yaml` Sigma rule under a directory
+  (recursive, deterministic order), runs `detection_audit`, and prints a health
+  report. `--techniques` scores ATT&CK coverage, `--json` emits the raw audit,
+  `--navigator [OUT]` exports an ATT&CK Navigator layer, and `--min-score N` exits
+  non-zero below the threshold so it can gate CI. Pure/offline; exit 2 on bad input.
 
 ### Fixed
-- **Adversarial audit remediation:** seven hostile-finder/skeptic-verifier rounds
-  cleared **89 confirmed defects** total (round-1: 20; round-2: 22; round-3: 17;
-  round-4: 6; round-5: 7; round-6: 9; round-7: 8), each with a regression test.
+- **Adversarial audit remediation:** eight hostile-finder/skeptic-verifier rounds
+  cleared **96 confirmed defects** total (round-1: 20; round-2: 22; round-3: 17;
+  round-4: 6; round-5: 7; round-6: 9; round-7: 8; round-8: 7), each with a
+  regression test.
+  - Round-8 (CDK IaC stacks / custom-resource / deploy scripts / CI workflows / the
+    Makefile — the supply-chain surface). 7 confirmed (the IAM identity/runtime
+    surface audited clean):
+    - **secret scanner (MED)** — `deploy/scan_secrets.sh` and the CI inline copy both
+      `--exclude-dir=.github`, blinding the pre-commit hook AND CI to a leaked OIDC
+      role ARN (live account id) or a static access key in a workflow file — exactly
+      where they leak in a public repo. Now `.github` is scanned (patterns are
+      char-class-assembled so workflows never self-match); verified it catches a
+      planted `.github` secret while tracked files stay clean.
+    - **release pipeline (MED)** — `release.yml` built + published to PyPI with the
+      `build` job depending on nothing and CI not running on tags, so a broken
+      commit could ship. Added a `gate` job (ruff + full pytest at the 88% coverage
+      floor) that `build` now `needs`.
+    - **guardrail stack (MED)** — the pinned `CfnGuardrailVersion` never re-versioned
+      when the policy was tightened (its only inputs — a stable id token + a constant
+      description — didn't change), so the runtime kept enforcing the stale snapshot.
+      The description now embeds a SHA-256 hash of the sensitive-information policy,
+      forcing a new immutable version on any policy edit.
+    - **registry custom-resource (MED)** — `CreateRegistry`/`UpdateRegistry` passed no
+      idempotency `clientToken`, so a provider-framework retry could duplicate or
+      `ConflictException`-fail the stack. Now a deterministic ≥33-char token derived
+      from the CFN RequestId (matching `registry_live.py`).
+    - **registry custom-resource (LOW×2)** — a rollback `Delete` with the SDK
+      unbundled threw before the try/guard (stack wedged in `DELETE_FAILED`); a `Name`
+      change was silently ignored on `Update` (drift). Now `Delete` loads the SDK
+      inside its own branch (unbundled → no-op success), and a `Name` change forces a
+      replace (new `PhysicalResourceId`).
+    - **Makefile (LOW)** — `make ci` claimed to mirror CI "exactly" but omitted the
+      mypy job and the `iac-cdk/test/*.test.ts` stack tests (a false-green local
+      gate); the docstring now states those two are CI-only.
   - Round-7 (gateway auth, mockdata/accounts, remaining scenarios, specialist
     agents, CDK IaC). 8 confirmed:
     - **gateway (HIGH)** — `lambda_interceptor` emitted `payloadFilter.exclude` as a

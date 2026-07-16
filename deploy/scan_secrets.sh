@@ -24,11 +24,15 @@ ROOT="${1:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 GREP() { grep -rInE "$1" "$ROOT" \
   --binary-files=without-match \
   --exclude-dir=.git \
-  --exclude-dir=.github \
   --exclude-dir=node_modules \
   --exclude-dir=.venv \
   --exclude-dir=cdk.out \
   --exclude-dir=__pycache__ ; }
+# NOTE: .github is deliberately NOT excluded — CI workflow files are exactly where
+# a real OIDC role ARN (with a live account id) or a static access key can leak, and
+# this repo is public. Excluding it made both the pre-commit hook and the CI copy of
+# this scan blind to that (audited). The patterns below are char-class-assembled so
+# the workflows/this script never match themselves.
 
 FAILED=0
 

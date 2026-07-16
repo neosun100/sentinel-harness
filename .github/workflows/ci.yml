@@ -160,11 +160,13 @@ jobs:
       - name: Scan for customer names and hardcoded AWS credentials
         run: |
           set -uo pipefail
-          # Search everything except the VCS dir and this workflow file itself.
+          # Search everything except the VCS dir. .github is deliberately INCLUDED —
+          # workflow files are exactly where a real OIDC role ARN (live account id) or
+          # a static access key can leak in a public repo; the patterns are
+          # char-class-assembled so the workflows never match themselves.
           GREP() { grep -rInE "$1" . \
             --binary-files=without-match \
             --exclude-dir=.git \
-            --exclude-dir=.github \
             --exclude-dir=node_modules \
             --exclude-dir=.venv \
             --exclude-dir=__pycache__ ; }

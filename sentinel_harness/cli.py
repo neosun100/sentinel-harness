@@ -13,6 +13,8 @@ Subcommands
     sentinel cleanup  <prefix>                            delete every harness whose name starts with prefix
     sentinel run-scenario <name>                          dispatch to scenarios/ (cve_triage | multi_harness | detection_gen)
     sentinel export   <harness.yaml|name> [-o out.py]     emit editable Strands Agent code (no-lock-in escape hatch)
+    sentinel detection audit <dir> [--techniques ..]      offline Sigma rule-library health check (lint+dedup+ATT&CK coverage)
+                      [--json] [--navigator [OUT]] [--min-score N]
 
 Everything is env-parameterized (see core.py): SENTINEL_EXECUTION_ROLE_ARN,
 SENTINEL_REGION, AWS_PROFILE. Nothing here is customer- or company-specific.
@@ -306,6 +308,123 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+TOOLS_DIR = os.path.join(_REPO_ROOT, "tools")
+
+
+def _load_tool_handler(name: str):
+    """Load a ``tools/<name>/handler.py`` module by path (tools/ is a flat scripts
+    tree, not an importable package). Returns the module."""
+    import importlib.util
+    path = os.path.join(TOOLS_DIR, name, "handler.py")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"tool handler not found: {path}")
+    spec = importlib.util.spec_from_file_location(f"_cli_tool_{name}", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _collect_sigma_rules(directory: str) -> list:
+    """Read every ``.yml``/``.yaml`` file under ``directory`` (recursively) as a
+    Sigma rule STRING. Deterministic order (sorted by relative path) so a repeat
+    run over the same tree produces the same audit. Skips nothing silently — an
+    unreadable file raises so the operator sees it."""
+    if not os.path.isdir(directory):
+        raise NotADirectoryError(f"not a directory: {directory}")
+    paths = []
+    for root, _dirs, files in os.walk(directory):
+        for fn in files:
+            if fn.lower().endswith((".yml", ".yaml")):
+                paths.append(os.path.join(root, fn))
+    paths.sort()
+    rules = []
+    for p in paths:
+        with open(p, "r", encoding="utf-8") as fh:
+            rules.append(fh.read())
+    return rules
+
+
+def cmd_detection_audit(args: argparse.Namespace) -> int:
+    """Run the deterministic rule-library health check over a directory of Sigma
+    rules. Prints a report (or JSON / a Navigator layer) and — with ``--min-score``
+    — exits non-zero when the health score is below the threshold, so it can gate CI."""
+    try:
+        rules = _collect_sigma_rules(args.directory)
+    except (NotADirectoryError, OSError) as exc:
+        _eprint(f"detection audit: {exc}")
+        return 2
+    if not rules:
+        _eprint(f"detection audit: no .yml/.yaml Sigma rules found under {args.directory!r}")
+        return 2
+
+    techniques = None
+    if args.techniques:
+        techniques = [t.strip().upper() for t in args.techniques.split(",") if t.strip()]
+
+    audit = _load_tool_handler("detection_audit")
+    event = {"rules": rules}
+    if techniques is not None:
+        event["techniques"] = techniques
+    result = audit.handler(event, None)
+    if not result.get("ok"):
+        _eprint(f"detection audit: {result.get('message', 'audit failed')}")
+        return 2
+
+    # --navigator: emit the ATT&CK Navigator layer instead of the text report.
+    if args.navigator:
+        navtool = _load_tool_handler("detection_navigator")
+        nav = navtool.handler(event, None)
+        if not nav.get("ok"):
+            _eprint(f"detection audit: navigator export failed: {nav.get('message')}")
+            return 2
+        # --navigator with no value (const '-') means stdout; a value is a file path.
+        out_path = None if args.navigator == "-" else args.navigator
+        _emit_json(nav["layer"], out_path)
+        return 0
+
+    if args.json:
+        _emit_json(result, None)
+    else:
+        _print_audit_report(result)
+
+    # CI gate: fail when the health score is below --min-score.
+    if args.min_score is not None and result["health_score"] < args.min_score:
+        _eprint(f"detection audit: health_score {result['health_score']} "
+                f"< --min-score {args.min_score}")
+        return 1
+    return 0
+
+
+def _emit_json(obj, out_path) -> None:
+    """Write ``obj`` as pretty JSON to ``out_path`` (a file) or stdout."""
+    text = json.dumps(obj, indent=2, ensure_ascii=False)
+    if out_path:
+        with open(out_path, "w", encoding="utf-8") as fh:
+            fh.write(text + "\n")
+        _eprint(f"wrote {out_path}")
+    else:
+        sys.stdout.write(text + "\n")
+        sys.stdout.flush()
+
+
+def _print_audit_report(result: dict) -> None:
+    """Human-readable rule-library health report."""
+    t = result["totals"]
+    print(f"Rule-library health: {result['health_score']}/100  "
+          f"({result['rule_count']} rule(s))")
+    print(f"  invalid={t['invalid_rules']}  duplicates={t['duplicate_pairs']}  "
+          f"subsumptions={t['subsumptions']}  overlaps={t['overlaps']}  "
+          f"uncovered={t['uncovered_techniques']}  untagged={t['untagged_rules']}  "
+          f"invalid_tags={t['invalid_tags']}")
+    findings = result.get("findings") or []
+    if findings:
+        print("Findings (worst first):")
+        for f in findings:
+            print(f"  {f}")
+    else:
+        print("No findings — clean.")
+
+
 # ------------------------------------------------------------------------- parser
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -362,6 +481,31 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("harness", help="path to a harness.yaml OR a harness name under harnesses/")
     ex.add_argument("-o", "--out", help="write code to this file (default: stdout)")
     ex.set_defaults(func=cmd_export)
+
+    # `sentinel detection audit <dir>` — deterministic, offline rule-library health
+    # check over a directory of Sigma rules (lint + dedup + coverage aggregated).
+    det = sub.add_parser("detection", help="deterministic detection-engineering tools (offline)")
+    det_sub = det.add_subparsers(dest="detection_command", required=True)
+    da = det_sub.add_parser(
+        "audit",
+        help="health-check a directory of Sigma rules (lint + dedup + ATT&CK coverage)",
+        description=(
+            "Run the deterministic, offline detection-library health check over every "
+            ".yml/.yaml Sigma rule under DIRECTORY: aggregates sigma_yara_lint + "
+            "detection_dedup + detection_coverage into a 0-100 health score and a "
+            "prioritized findings list. Use --techniques to score ATT&CK coverage, "
+            "--navigator to export a Navigator layer, and --min-score to gate CI."
+        ),
+    )
+    da.add_argument("directory", help="directory of Sigma rule files (.yml/.yaml, recursive)")
+    da.add_argument("--techniques",
+                    help="comma-separated target ATT&CK technique ids (e.g. T1059,T1190.001)")
+    da.add_argument("--json", action="store_true", help="emit the raw audit JSON")
+    da.add_argument("--navigator", nargs="?", const="-", metavar="OUT",
+                    help="emit an ATT&CK Navigator layer JSON (to OUT file, or stdout)")
+    da.add_argument("--min-score", type=int, metavar="N",
+                    help="exit non-zero if health_score < N (CI gate)")
+    da.set_defaults(func=cmd_detection_audit)
 
     return p
 

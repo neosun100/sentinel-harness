@@ -6,8 +6,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
-**M13 — world-class depth + adversarial hardening.** Additive on top of M0–M12
-(no live-validated code rewritten). Test suite **1742 → 2352 offline passing**.
+_Nothing yet._
+
+## [0.4.0] — 2026-07-18
+
+**M13 world-class depth + M14 continuous hardening & the detection-engineering
+suite.** Additive on top of M0–M12 (no live-validated code rewritten). Test suite
+**1742 → 2352 offline passing** (90% coverage); **100 confirmed defects** fixed
+across eight adversarial-audit rounds + a service-model drift scan, each with a
+regression test. Highlights: a complete deterministic/LLM-free detection suite
+(lint → translate[YARA/Suricata/SPL/EQL] → dedup → coverage → audit → navigator →
+baseline) driven by `sentinel detection audit|baseline|ci`, and one live non-prod
+AWS proof of a drift fix.
 
 ### Added
 - **Deployment benchmark** (`sentinel_harness/benchmark.py`) — deterministic

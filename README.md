@@ -12,9 +12,11 @@
   <img alt="license" src="https://img.shields.io/badge/license-MIT--0-30d158"/>
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-2997ff"/>
   <img alt="bedrock-agentcore" src="https://img.shields.io/badge/Amazon%20Bedrock-AgentCore%20Harness-ff9900"/>
-  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-1742%20passing-1D8102"/>
-  <img alt="coverage" src="https://img.shields.io/badge/coverage-91%25-1D8102"/>
-  <img alt="milestones" src="https://img.shields.io/badge/milestones-M0--M12%20delivered-1D8102"/>
+  <img alt="version" src="https://img.shields.io/badge/version-0.4.0-2997ff"/>
+  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-2352%20passing-1D8102"/>
+  <img alt="coverage" src="https://img.shields.io/badge/coverage-90%25-1D8102"/>
+  <img alt="milestones" src="https://img.shields.io/badge/milestones-M0--M14%20delivered-1D8102"/>
+  <img alt="hardening" src="https://img.shields.io/badge/adversarial%20audit-100%20defects%20fixed-8b5cf6"/>
   <img alt="live" src="https://img.shields.io/badge/live--validated-Runtime%20A2A%20%C2%B7%20closed%20loop%20%C2%B7%20JWT%20%C2%B7%20eval%20%C2%B7%20memory-8b5cf6"/>
   <a href="https://neosun100.github.io/sentinel-harness/"><img alt="api docs" src="https://img.shields.io/badge/API%20docs-live-2997ff"/></a>
 </p>
@@ -97,7 +99,7 @@ Honest build status per capability — mirrors the self-audit.
 | **Tools** | `nvd_lookup` / `epss_kev` / `attack_lookup` / `web_search` | 🟡 **reference stubs** (offline-safe, contract-tested) | `tools/`, `tests/test_tool_handlers.py` |
 | **Tools** | `siem_query` / `asset_lookup` / `enrich_ioc` / `ops_query` — backend-pluggable | 🟢 **built + tested** (offline mock default; `*_LIVE`=1 switches to a real stdlib-HTTP client — env-driven URL + bearer, timeouts, all failures→`upstream_error` with no silent fallback — proven end-to-end against an in-process 127.0.0.1 mock server, zero external network) | `tools/{siem_query,asset_lookup,enrich_ioc,ops_query}/`, `tests/test_*_live.py` |
 
-🟢 built & validated · 🟡 built, partial · 🟠 designed with loadable config · ⚪ design narrative only. **1742 offline tests pass** (+6 skipped when optional deps absent).
+🟢 built & validated · 🟡 built, partial · 🟠 designed with loadable config · ⚪ design narrative only. **2352 offline tests pass** (+6 skipped when optional deps absent).
 
 ## 🚀 Quickstart
 
@@ -224,12 +226,13 @@ Borrowed patterns (see [`docs/BLUEPRINT.md`](docs/BLUEPRINT.md)): supervisor→s
 | [`docs/GOVERNANCE.md`](docs/GOVERNANCE.md) | Registry dual-gate, HITL, sandbox hooks, and tag-guard controls |
 | [`docs/COMPLIANCE.md`](docs/COMPLIANCE.md) | Capability → SOC 2 / ISO 27001 / NIST CSF 2.0 control mapping (anchors machine-verified) |
 | [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md) | Logging (`logutil`), metrics (token/latency/tool-call/error/eval), the OTEL/Transaction-Search path |
-| [`docs/TESTING.md`](docs/TESTING.md) | The 1742-test offline suite: layout, determinism, how to run |
+| [`docs/TESTING.md`](docs/TESTING.md) | The 2352-test offline suite: layout, determinism, how to run |
 | [`docs/FIDELITY-REPORT.md`](docs/FIDELITY-REPORT.md) | The self-audit — real vs. built vs. designed, with limits stated |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Delivered milestones (M0–M12) and what's next |
 | [**API reference (live)**](https://neosun100.github.io/sentinel-harness/) | Rendered `sentinel_harness` API docs (pdoc → GitHub Pages) |
 | [`CHANGELOG.md`](CHANGELOG.md) | Versioned change history |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | The tag-driven release runbook (SBOM · SLSA provenance · PyPI OIDC) |
+| [`docs/RELEASE-v0.4.0.md`](docs/RELEASE-v0.4.0.md) | The v0.4.0 release notes — detection-engineering suite + 100-defect hardening |
 | [`docs/RELEASE-v0.2.0.md`](docs/RELEASE-v0.2.0.md) | The v0.2.0 release notes (highlights, by-the-numbers, honest limits) |
 
 ## 🎬 Explainer deck (client-facing)
@@ -261,7 +264,7 @@ sentinel-harness/
 ├── iac-cdk/              L3 CDK stacks (9; guardrail/identity/obs/vpc live) 🟢
 ├── iac-terraform/        deployable Terraform mirror (validate-clean)  🟢
 ├── docs/                 QUICKSTART · ARCHITECTURE · BLUEPRINT · SETUP · HARNESSES · GOVERNANCE · TESTING · FIDELITY-REPORT · ROADMAP
-├── tests/                offline unit + config tests (1742)     🟢
+├── tests/                offline unit + config tests (2352)     🟢
 └── .github/workflows/    CI incl. a customer-name / secret gate
 ```
 

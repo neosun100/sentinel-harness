@@ -39,8 +39,10 @@ CANONICAL_TARGETS = [
     "destroy",
 ]
 
-# The offline suite size the doc must quote accurately.
-EXPECTED_TEST_COUNT = "1698"
+# The offline suite size the doc must quote accurately. Update this together with
+# QUICKSTART.md / TESTING.md whenever the suite size changes (it is a deliberate
+# tripwire: a doc that quotes a stale count fails here).
+EXPECTED_TEST_COUNT = "2352"
 
 # The one customer/company name that must never appear in this public repo. Built
 # from a char class so the literal string never sits in this source file (mirrors

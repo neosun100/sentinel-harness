@@ -5,7 +5,7 @@ to run and extend it. This document is a companion to the per-capability status
 matrix in the [root README](../README.md) and the honesty audit in
 [`docs/FIDELITY-REPORT.md`](FIDELITY-REPORT.md).*
 
-**Verified at HEAD:** `1698 passed, 5 skipped` across **77** test files
+**Verified at HEAD:** `2352 passed, 6 skipped` across **119** test files
 (76 under `tests/`, 1 under `tests/smoke/`), in ~41s on a laptop, with **zero AWS
 calls and zero external network I/O** on the default path.
 
@@ -75,7 +75,7 @@ uv run --no-project --python 3.13 \
   python -m pytest tests/ -q
 ```
 
-Expected result: `1698 passed, 5 skipped`.
+Expected result: `2352 passed, 6 skipped`.
 
 The two env vars keep boto3 client construction and import hermetic — a placeholder
 execution-role ARN (all-zeros account) and a fixed region so nothing tries to
@@ -117,8 +117,8 @@ does (Section 7).
 
 ## 3. Test taxonomy
 
-The 89 files fall into seven groups. Counts below are file counts; the total suite
-is 1698 tests.
+The 119 files fall into seven groups. Counts below are file counts; the total suite
+is 2352 tests.
 
 ### a. Core / library unit tests
 
@@ -210,7 +210,7 @@ present, and skips cleanly otherwise.
 
 Keep the docs and delivery story honest and in-sync with the repo:
 `test_quickstart_doc.py` (the offline test count quoted in `docs/QUICKSTART.md`
-must equal the real suite size — currently `1698` — and the canonical `make`
+must equal the real suite size — currently `2352` — and the canonical `make`
 targets must match the Makefile), `test_makefile.py`, `test_deploy_scripts.py`,
 `test_eval_assets.py`, `test_platform_demo.py`, `test_coverage_smoke.py`,
 `test_intake_adapter.py`, `test_config_validation.py`, `test_cyber_skills.py`,
@@ -258,9 +258,9 @@ fixtures stay scan-clean.
 
 ---
 
-## 4. The 5 skips
+## 4. The 6 skips
 
-On the default offline run you will see exactly **5 skipped** tests. All five are
+On the default offline run you will see exactly **6 skipped** tests. All six are
 intentional and gated on an *absent optional dependency* or an *un-opted-in live
 path* — none is a masked failure:
 
@@ -270,12 +270,13 @@ path* — none is a masked failure:
 | `strands` absent | `test_litellm_gateway.py:173` | same — the LiteLLM gateway's real `LiteLLMModel` path is `importorskip`'d; the stubbed-model path always runs. |
 | `strands` absent | `test_specialist.py:198` | same — real specialist wiring is `importorskip`'d so CI stays green when the agent stack is absent. |
 | `strands` absent | `test_threat_hunt.py:286` | same. |
+| `strands` absent | `test_adversarial_reviewer.py:306` | same — the adversarial-reviewer specialist's real wiring is `importorskip`'d. |
 | live re-verify not opted in | `tests/smoke/test_m4_acceptance.py:397` | `skipif` unless `SENTINEL_SMOKE_LIVE=1` **and** AWS creds resolve — the opt-in, read-only STS probe. |
 
-Install the optional stack (`strands-agents`, `litellm`) and the four `strands`
-skips convert to runs; opt into `SENTINEL_SMOKE_LIVE=1` with creds and the fifth
+Install the optional stack (`strands-agents`, `litellm`) and the five `strands`
+skips convert to runs; opt into `SENTINEL_SMOKE_LIVE=1` with creds and the sixth
 runs its read-only STS probe. Absent both, the suite is fully green at
-`1698 passed, 5 skipped`.
+`2352 passed, 6 skipped`.
 
 ---
 

@@ -6,7 +6,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **MCP Server mode** (`sentinel mcp serve`) — exposes all 20 sentinel tools as a
+  standards-compliant Model Context Protocol server over stdio. Any MCP-compatible
+  AI agent (Claude Code, Cursor, Windsurf, custom agents) can connect and invoke the
+  full detection-engineering suite, security enrichment, and SecOps automation tools
+  with zero integration code. Optional dependency (`pip install sentinel-harness[mcp]`).
+- **GitHub Pages landing site** — a dark-theme, animated project homepage at
+  https://neosun100.github.io/sentinel-harness/ with hero stats, architecture SVG,
+  milestone timeline, detection pipeline, live-evidence table, and documentation grid.
+  pdoc API reference moved to `/api/` subpath.
+- **v0.4.0 published to PyPI** — `pip install sentinel-harness` now works.
+  GitHub Release includes SBOM + SLSA provenance attestation.
 
 ## [0.4.0] — 2026-07-18
 

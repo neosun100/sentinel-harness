@@ -13,9 +13,9 @@
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-2997ff"/>
   <img alt="bedrock-agentcore" src="https://img.shields.io/badge/Amazon%20Bedrock-AgentCore%20Harness-ff9900"/>
   <img alt="version" src="https://img.shields.io/badge/version-0.4.0-2997ff"/>
-  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-2352%20passing-1D8102"/>
+  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-2365%20passing-1D8102"/>
   <img alt="coverage" src="https://img.shields.io/badge/coverage-90%25-1D8102"/>
-  <img alt="milestones" src="https://img.shields.io/badge/milestones-M0--M14%20delivered-1D8102"/>
+  <img alt="milestones" src="https://img.shields.io/badge/milestones-M0--M15%20delivered-1D8102"/>
   <img alt="hardening" src="https://img.shields.io/badge/adversarial%20audit-100%20defects%20fixed-8b5cf6"/>
   <img alt="live" src="https://img.shields.io/badge/live--validated-Runtime%20A2A%20%C2%B7%20closed%20loop%20%C2%B7%20JWT%20%C2%B7%20eval%20%C2%B7%20memory-8b5cf6"/>
   <a href="https://neosun100.github.io/sentinel-harness/"><img alt="api docs" src="https://img.shields.io/badge/API%20docs-live-2997ff"/></a>
@@ -154,6 +154,27 @@ sentinel detection ci rules/ --min-score 90 --against baseline.json \
 `detection ci` exits non-zero if the health score is below `--min-score` **or** the
 library regressed vs the baseline — a single pipeline step. All of the above run with
 **zero AWS / zero network**.
+
+## 🤖 MCP Server — connect any AI agent
+
+All 20 tools are also exposed as a standard **[Model Context Protocol](https://modelcontextprotocol.io/) server** over stdio. Any MCP-compatible AI agent (Claude Code, Cursor, Windsurf, custom) can connect with zero integration code:
+
+```bash
+pip install sentinel-harness[mcp]   # one-time
+sentinel mcp serve                   # start the server
+```
+
+Add to Claude Code `settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "sentinel": { "command": "sentinel", "args": ["mcp", "serve"] }
+  }
+}
+```
+
+Full guide: [`docs/MCP-SERVER.md`](docs/MCP-SERVER.md).
 
 ## 🔬 Scenarios & evidence
 

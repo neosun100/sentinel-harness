@@ -155,6 +155,27 @@ sentinel detection ci rules/ --min-score 90 --against baseline.json \
 library regressed vs the baseline — a single pipeline step. All of the above run with
 **zero AWS / zero network**.
 
+## 🤖 MCP Server — connect any AI agent
+
+All 20 tools are also exposed as a standard **[Model Context Protocol](https://modelcontextprotocol.io/) server** over stdio. Any MCP-compatible AI agent (Claude Code, Cursor, Windsurf, custom) can connect with zero integration code:
+
+```bash
+pip install sentinel-harness[mcp]   # one-time
+sentinel mcp serve                   # start the server
+```
+
+Add to Claude Code `settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "sentinel": { "command": "sentinel", "args": ["mcp", "serve"] }
+  }
+}
+```
+
+Full guide: [`docs/MCP-SERVER.md`](docs/MCP-SERVER.md).
+
 ## 🔬 Scenarios & evidence
 
 Each scenario is runnable end-to-end and writes a result JSON to [`evidence/`](evidence/) (account IDs scrubbed). Captured live-run outcomes:

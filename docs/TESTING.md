@@ -5,7 +5,7 @@ to run and extend it. This document is a companion to the per-capability status
 matrix in the [root README](../README.md) and the honesty audit in
 [`docs/FIDELITY-REPORT.md`](FIDELITY-REPORT.md).*
 
-**Verified at HEAD:** `2352 passed, 6 skipped` across **119** test files
+**Verified at HEAD:** `2365 passed, 6 skipped` across **119** test files
 (76 under `tests/`, 1 under `tests/smoke/`), in ~41s on a laptop, with **zero AWS
 calls and zero external network I/O** on the default path.
 
@@ -75,7 +75,7 @@ uv run --no-project --python 3.13 \
   python -m pytest tests/ -q
 ```
 
-Expected result: `2352 passed, 6 skipped`.
+Expected result: `2365 passed, 6 skipped`.
 
 The two env vars keep boto3 client construction and import hermetic — a placeholder
 execution-role ARN (all-zeros account) and a fixed region so nothing tries to
@@ -118,7 +118,7 @@ does (Section 7).
 ## 3. Test taxonomy
 
 The 119 files fall into seven groups. Counts below are file counts; the total suite
-is 2352 tests.
+is 2365 tests.
 
 ### a. Core / library unit tests
 
@@ -210,7 +210,7 @@ present, and skips cleanly otherwise.
 
 Keep the docs and delivery story honest and in-sync with the repo:
 `test_quickstart_doc.py` (the offline test count quoted in `docs/QUICKSTART.md`
-must equal the real suite size — currently `2352` — and the canonical `make`
+must equal the real suite size — currently `2365` — and the canonical `make`
 targets must match the Makefile), `test_makefile.py`, `test_deploy_scripts.py`,
 `test_eval_assets.py`, `test_platform_demo.py`, `test_coverage_smoke.py`,
 `test_intake_adapter.py`, `test_config_validation.py`, `test_cyber_skills.py`,
@@ -276,7 +276,7 @@ path* — none is a masked failure:
 Install the optional stack (`strands-agents`, `litellm`) and the five `strands`
 skips convert to runs; opt into `SENTINEL_SMOKE_LIVE=1` with creds and the sixth
 runs its read-only STS probe. Absent both, the suite is fully green at
-`2352 passed, 6 skipped`.
+`2365 passed, 6 skipped`.
 
 ---
 

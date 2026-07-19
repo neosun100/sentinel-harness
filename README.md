@@ -13,9 +13,9 @@
   <img alt="python" src="https://img.shields.io/badge/python-3.10%2B-2997ff"/>
   <img alt="bedrock-agentcore" src="https://img.shields.io/badge/Amazon%20Bedrock-AgentCore%20Harness-ff9900"/>
   <img alt="version" src="https://img.shields.io/badge/version-0.4.0-2997ff"/>
-  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-2352%20passing-1D8102"/>
+  <img alt="tests" src="https://img.shields.io/badge/offline%20tests-2365%20passing-1D8102"/>
   <img alt="coverage" src="https://img.shields.io/badge/coverage-90%25-1D8102"/>
-  <img alt="milestones" src="https://img.shields.io/badge/milestones-M0--M14%20delivered-1D8102"/>
+  <img alt="milestones" src="https://img.shields.io/badge/milestones-M0--M15%20delivered-1D8102"/>
   <img alt="hardening" src="https://img.shields.io/badge/adversarial%20audit-100%20defects%20fixed-8b5cf6"/>
   <img alt="live" src="https://img.shields.io/badge/live--validated-Runtime%20A2A%20%C2%B7%20closed%20loop%20%C2%B7%20JWT%20%C2%B7%20eval%20%C2%B7%20memory-8b5cf6"/>
   <a href="https://neosun100.github.io/sentinel-harness/"><img alt="api docs" src="https://img.shields.io/badge/API%20docs-live-2997ff"/></a>

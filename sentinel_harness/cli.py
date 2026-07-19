@@ -713,7 +713,26 @@ def build_parser() -> argparse.ArgumentParser:
     dc.add_argument("--json", action="store_true", help="emit a machine-readable gate summary")
     dc.set_defaults(func=cmd_detection_ci)
 
+    # `sentinel mcp serve` — run as an MCP server over stdio
+    mcp = sub.add_parser(
+        "mcp",
+        help="MCP (Model Context Protocol) server mode — expose all tools to AI agents",
+    )
+    mcp_sub = mcp.add_subparsers(dest="mcp_command", required=True)
+    mcp_serve = mcp_sub.add_parser(
+        "serve",
+        help="start the MCP server over stdio (connect from Claude Code, Cursor, etc.)",
+    )
+    mcp_serve.set_defaults(func=cmd_mcp_serve)
+
     return p
+
+
+def cmd_mcp_serve(args: argparse.Namespace) -> int:
+    """Start the sentinel-harness MCP server over stdio."""
+    from .mcp_server import run
+    run()
+    return 0
 
 
 def main(argv=None) -> int:

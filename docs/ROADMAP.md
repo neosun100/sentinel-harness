@@ -51,7 +51,7 @@ live) · 🟡 skeleton / partial · 🔴 gap.
 | `specialists/` | `cve-intel` (docker-build + live-validated on AgentCore Runtime) + `attack-mapper` / `threat-hunt` (real graph/plan builders) + `adversarial-reviewer` (agent_a2a + local_a2a + two-stage Dockerfile + contract test) | ✅ | all four specialists shipped |
 | `longrunning/` | `bas-runner` (BAS case-gen + detection-replay) + `detonation` (full simulated microVM lifecycle + orchestrator) | 🟩 | both built + tested; detonation stays an honest SIMULATED no-op |
 | `iac-cdk/lib/` | 9 synth-green stacks — `gateway` / `registry` / `memory` / `network` / `identity` / `guardrail` / `observability` / `harness` / `runtime` (+ `iam`); `iac-terraform/` mirror is `terraform validate`-clean | ✅ | `guardrail` / `identity` / `observability` LIVE-deployed (us-east-1); the Registry + `runtime` custom-resource/raw-CfnResource stacks synth clean but fail on deploy until their CFN types are GA (both control-plane APIs are separately live-verified — Registry via `registry_live.py`, `CreateAgentRuntime` via a real arm64 microVM that served a live A2A call, HTTP 200, real Bedrock model, on a non-prod test account, then torn down — `evidence/live_a2a_runtime_result.json`) |
-| `tests/` | 119 files, **2352 offline passing** (+6 skipped) | ✅ | add tests with each new module |
+| `tests/` | 120 files, **2365 offline passing** (+6 skipped) | ✅ | add tests with each new module |
 | `evidence/` | 36 evidence sets | ✅ | add one per milestone |
 
 ### 0.3 Fit score (vs. a full three-layer SecOps agent program)
@@ -181,8 +181,8 @@ Each milestone gives: **goal / files / reused APIs / acceptance (live evidence) 
 Suggest one feature branch per milestone.
 
 ### M0 — Environment & baseline reproduction (half a day)
-**Goal:** on a fresh machine, get all 2352 offline tests green and reproduce ≥1 live scenario.
-- [ ] `uv sync` + `uv run pytest -q` → 2352 passing (+6 skipped) (offline).
+**Goal:** on a fresh machine, get all 2365 offline tests green and reproduce ≥1 live scenario.
+- [ ] `uv sync` + `uv run pytest -q` → 2365 passing (+6 skipped) (offline).
 - [ ] Configure `SENTINEL_EXECUTION_ROLE_ARN` / `SENTINEL_REGION` / `AWS_PROFILE` (non-prod) — see `docs/SETUP.md`.
 - [ ] Run `scenarios/scenario_cve_triage.py`; compare `evidence/cve_triage_result.json` shape.
 - [ ] Run `scenarios/scenario_hitl_resume.py`; reproduce pause→approve→resume.
@@ -419,7 +419,7 @@ hand-off reuses the live-capable M1/M2 engine (driven offline here, labeled a wi
       (`make deploy`, cost note, `make destroy`) + the no-lock-in export. — `docs/QUICKSTART.md`
 - [x] `tests/smoke/`: offline acceptance suite (default offline; `SENTINEL_SMOKE_LIVE=1` opt-in for live). — `tests/smoke/`
 
-**Acceptance:** `make test` → 2352 offline tests green; `make seed-registry` → dual-gate `ok`;
+**Acceptance:** `make test` → 2365 offline tests green; `make seed-registry` → dual-gate `ok`;
 `make create-harnesses` (DRY_RUN=1) → 8 harnesses validate offline with zero AWS; `sentinel export` → valid
 compilable Strands Python; `make smoke` → the offline acceptance suite green. A fresh non-prod account can then
 run `make deploy` (free-tier foundation) and the live scenarios; `make destroy` tears it all down.
@@ -554,10 +554,10 @@ out of the scenario script into a reusable, tested controller the self-improving
       live scenario hardcodes). The only thing still gated on `InvokeHarness` quota is the actual AWS
       round-trip — the mechanism is proven. Additive: the live `run()` flow is untouched.
 
-**Next (ranked backlog beyond M13.7):** wire the controller into the live self-improve scenario
-(above); more connectors (QRadar / Microsoft Sentinel / PagerDuty); end-to-end OTEL span emission to
-feed managed online-eval; and running the remaining `[EXTERNAL]` items on an account with
-`InvokeHarness`/`CreateAgentRuntime` quota.
+**Next (ranked backlog beyond M14):** ~~more connectors~~ ✅ (8 SIEM + 3 ticketing shipped in M13);
+~~OTEL span emission~~ ✅ (`sentinel_harness/tracing.py` — GenAI semantic conventions, offline-first +
+opt-in live OTEL); wire the autonomy controller into the live self-improve scenario (needs
+`InvokeHarness` quota); and running the remaining `[EXTERNAL]` items on an account with quota.
 
 ## 4d. Continuous adversarial hardening + the detection-engineering suite (M14) — ✅ DELIVERED (offline; one live proof)
 
@@ -695,3 +695,34 @@ Not code — align these with your platform/security owners before M5, or it wil
 | Disposition → strategy feedback loop | M6 |
 | One-command delivery + no lock-in | M7 |
 | Backstop: multi-round agents + human review + kill hallucination | throughout (HITL gates + adversarial-reviewer, present) |
+| MCP Server mode — any AI agent can invoke all 20 tools | M15 |
+| GitHub Pages landing site + PyPI publish | M15 |
+
+---
+
+## 4e. Platform distribution & extensibility (M15) — 🟢 IN PROGRESS
+
+> Theme: **make sentinel-harness usable by any AI agent, anywhere, instantly.**
+> The capabilities are built — now distribute them as a standard protocol server.
+
+### M15 — MCP Server + distribution + landing site
+
+- [x] **MCP Server mode** (`sentinel mcp serve`) — all 20 tools exposed as a
+      standards-compliant MCP server over stdio. Any MCP-compatible AI agent (Claude
+      Code, Cursor, Windsurf, custom) connects and invokes the full suite with zero
+      integration code. Lazy import, optional `mcp` dep, 13 tests. —
+      `sentinel_harness/mcp_server.py`, `sentinel_harness/cli.py`
+- [x] **GitHub Pages landing site** — dark-theme animated project homepage with hero
+      stats, architecture SVG, milestone timeline, detection pipeline, live-evidence
+      table, documentation grid. pdoc API docs at `/api/`. Deployed. —
+      `site/index.html`, `.github/workflows/docs.yml`
+- [x] **v0.4.0 published** — PyPI (`pip install sentinel-harness`), GitHub Release
+      with SBOM + SLSA provenance. — `release.yml`, manual twine upload
+- [ ] **PyPI Trusted Publisher** — configure OIDC on PyPI so future releases are
+      fully automated (one-time web UI step; claims documented).
+- [ ] **MCP tool schemas** — generate per-tool JSON Schemas from handler docstrings
+      for richer auto-complete in MCP clients.
+
+**Acceptance:** `sentinel mcp serve` starts, lists 20 tools, invokes each correctly;
+Pages live at `neosun100.github.io/sentinel-harness/`; `pip install sentinel-harness`
+installs 0.4.0 from PyPI; suite 2365 passed.

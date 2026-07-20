@@ -23,8 +23,14 @@ sentinel = "sentinel_harness.cli:main"
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["sentinel_harness", "intake"]
+# Packaging: an explicit two-name list silently DROPPED sentinel_harness.connectors
+# (subpackages are not implied) and the whole tools/ tree — pip-installed users got
+# `tool handler not found` from `sentinel detection audit` / `sentinel mcp serve`.
+# find() with namespaces=true ships sentinel_harness + all subpackages, intake, and
+# the flat tools/<name>/handler.py tree (namespace packages — no __init__.py needed).
+[tool.setuptools.packages.find]
+include = ["sentinel_harness*", "intake*", "tools*", "mockdata*"]
+namespaces = true
 
 [tool.ruff]
 target-version = "py310"

@@ -268,6 +268,104 @@ def _lint_sigma(content: str) -> Tuple[List[str], List[str]]:
     return errors, warnings
 
 
+# --------------------------------------------------------------------------
+# FP-proneness heuristics (WARNING class — informational, never an error)
+# --------------------------------------------------------------------------
+# Ported from specialists/adversarial-reviewer logic (no_fp_scoping,
+# broad_selection, fp_risk). These fire on structurally valid rules that are
+# likely to produce excessive false positives in production. The output is a
+# separate "fp_warnings" list so existing errors/warnings counts are unaffected.
+_HIGH_VOLUME_CATEGORIES = frozenset({
+    "process_creation", "network_connection", "dns_query", "file_event",
+    "image_load", "registry_event", "pipe_created",
+})
+
+_GENERIC_SHORT_VALUES = frozenset({
+    "cmd", "tmp", "temp", "log", "run", "bin", "usr", "var", "etc", "net",
+    "sys", "win", "app", "get", "set", "put", "del", "new", "old", "all",
+})
+
+
+def _fp_heuristics_sigma(doc: dict) -> List[str]:
+    """Deterministic FP-proneness heuristics for a parsed Sigma rule.
+
+    Returns a list of warning strings (may be empty). These are separate from
+    the structural errors/warnings — they assess operational noise risk, not
+    correctness. A rule with >=2 fp_warnings is classified as "fp_prone" by the
+    audit aggregator for health-score impact."""
+    fp: List[str] = []
+    if not isinstance(doc, dict):
+        return fp
+
+    detection = doc.get("detection")
+    if not isinstance(detection, dict):
+        return fp
+
+    logsource = doc.get("logsource") or {}
+    category = str(logsource.get("category", "")).lower()
+    level = str(doc.get("level", "")).lower()
+    condition = str(detection.get("condition", ""))
+
+    # Gather all selection values for breadth analysis.
+    selections = {k: v for k, v in detection.items() if k != "condition"}
+
+    # 1. Missing falsepositives field entirely.
+    if "falsepositives" not in doc:
+        fp.append("no 'falsepositives' field — undocumented FP sources")
+
+    # 2. High-volume logsource with no exclusion filter in condition.
+    if category in _HIGH_VOLUME_CATEGORIES:
+        has_filter = "not " in condition or "filter" in condition
+        if not has_filter:
+            fp.append(
+                f"high-volume logsource '{category}' with no exclusion filter "
+                f"in condition (prone to noise without 'and not <filter>')"
+            )
+
+    # 3. Short/generic contains values.
+    for sel_name, sel_body in selections.items():
+        if not isinstance(sel_body, dict):
+            continue
+        for field_key, field_val in sel_body.items():
+            if "|contains" not in str(field_key):
+                continue
+            vals = field_val if isinstance(field_val, list) else [field_val]
+            for v in vals:
+                if not isinstance(v, str):
+                    continue
+                v_lower = v.lower().strip()
+                if len(v_lower) <= 4 or v_lower in _GENERIC_SHORT_VALUES:
+                    fp.append(
+                        f"short/generic contains value '{v}' in {sel_name}.{field_key}"
+                    )
+                    break  # one per field is enough
+
+    # 4. Selection whose ONLY predicate is a single contains (no anchoring).
+    for sel_name, sel_body in selections.items():
+        if not isinstance(sel_body, dict):
+            continue
+        if len(sel_body) == 1:
+            key = next(iter(sel_body))
+            if "|contains" in str(key) and "|all" not in str(key):
+                fp.append(
+                    f"selection '{sel_name}' has only a single contains predicate "
+                    f"(low specificity, no anchoring)"
+                )
+
+    # 5. Critical/high level with low-specificity selections.
+    if level in ("critical", "high"):
+        total_predicates = sum(
+            len(v) if isinstance(v, dict) else 0 for v in selections.values()
+        )
+        if total_predicates <= 2:
+            fp.append(
+                f"level '{level}' with only {total_predicates} predicate(s) "
+                f"(high severity + low specificity = noise)"
+            )
+
+    return fp
+
+
 def _check_condition_refs(condition: str, selections: set) -> List[str]:
     """Ensure every identifier used in a condition is a defined selection."""
     errors: List[str] = []
@@ -646,18 +744,24 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
     if rule_type == "sigma":
         errors, warnings = _lint_sigma(content)
+        fp_warnings = _fp_heuristics_sigma(_parse_yaml(content) if not errors else {})
     elif rule_type == "suricata":
         errors, warnings = _lint_suricata(content)
+        fp_warnings = []
     else:  # yara
         errors, warnings = _lint_yara(content)
+        fp_warnings = []
 
-    return {
+    result: Dict[str, Any] = {
         "ok": True,
         "rule_type": rule_type,
         "valid": len(errors) == 0,
         "errors": errors,
         "warnings": warnings,
     }
+    if fp_warnings:
+        result["fp_warnings"] = fp_warnings
+    return result
 
 
 if __name__ == "__main__":

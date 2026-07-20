@@ -79,7 +79,7 @@ class TestToolInputSchema:
         schema = _tool_input_schema("sigma_yara_lint")
         assert schema["type"] == "object"
         assert "event" in schema["properties"]
-        assert schema["required"] == ["event"]
+        assert "required" not in schema  # event is optional (bare-arguments fallback)
 
     def test_schema_description_includes_tool_name(self):
         schema = _tool_input_schema("detection_audit")

@@ -141,16 +141,21 @@ def _discover_tools() -> Dict[str, Dict[str, Any]]:
 
 
 def _tool_input_schema(tool_name: str) -> Dict[str, Any]:
-    """Generate a permissive JSON Schema for the tool's event parameter."""
+    """Generate a permissive JSON Schema for the tool's event parameter.
+
+    The ``event`` key is the canonical wrapper, but it is NOT required — when
+    absent, the entire arguments dict is treated as the event (bare-arguments
+    fallback). This keeps the MCP protocol layer from rejecting valid direct
+    calls while preserving the structured {event: ...} path for clients that
+    use it."""
     return {
         "type": "object",
         "properties": {
             "event": {
                 "type": "object",
-                "description": f"Input event for the {tool_name} tool. Pass the tool-specific parameters as keys.",
+                "description": f"Input event for the {tool_name} tool. Pass the tool-specific parameters as keys. You may also pass parameters directly without the event wrapper.",
             }
         },
-        "required": ["event"],
     }
 
 

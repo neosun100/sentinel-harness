@@ -36,9 +36,13 @@ logsource:
     category: process_creation
 tags:
     - attack.t1059.001
+falsepositives:
+    - legitimate admin scripts
 detection:
     selection:
-        CommandLine|contains: '-enc'
+        Image|endswith: '\\powershell.exe'
+        CommandLine|contains: '-EncodedCommand'
+        ParentImage|endswith: '\\explorer.exe'
     condition: selection
 """
 
@@ -50,9 +54,13 @@ logsource:
     category: process_creation
 tags:
     - attack.t1059.001
+falsepositives:
+    - legitimate admin scripts
 detection:
     selection:
-        CommandLine|contains: '-enc'
+        Image|endswith: '\\powershell.exe'
+        CommandLine|contains: '-EncodedCommand'
+        ParentImage|endswith: '\\explorer.exe'
     condition: selection
 """
 

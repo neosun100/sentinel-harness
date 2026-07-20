@@ -46,8 +46,8 @@ def audit(rules, techniques=None) -> dict:
     return da.handler(ev, None)
 
 
-def _rule(rid, tags=None, value="-enc", *, product="windows",
-          category="process_creation", full=True) -> str:
+def _rule(rid, tags=None, value="-EncodedCommand", *, product="windows",
+          category="ps_script", full=True) -> str:
     tagblock = ""
     if tags:
         tagblock = "tags:\n" + "".join(f"    - {t}\n" for t in tags)
@@ -56,7 +56,11 @@ def _rule(rid, tags=None, value="-enc", *, product="windows",
             f"title: {rid}\nid: {rid}\nstatus: experimental\nlevel: high\n"
             f"logsource:\n    product: {product}\n    category: {category}\n"
             f"{tagblock}"
-            f"detection:\n    selection:\n        CommandLine|contains: '{value}'\n"
+            f"falsepositives:\n    - legitimate usage\n"
+            f"detection:\n    selection:\n"
+            f"        Image|endswith: '\\\\powershell.exe'\n"
+            f"        CommandLine|contains: '{value}'\n"
+            f"        ParentImage|endswith: '\\\\explorer.exe'\n"
             f"    condition: selection\n"
         )
     # a structurally broken rule (no logsource, no condition)

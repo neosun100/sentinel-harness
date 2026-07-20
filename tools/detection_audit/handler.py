@@ -116,19 +116,20 @@ _SCORE_WEIGHTS = {
     "duplicate_pairs": (15, 5),
     "untagged_rules": (10, 10),
     "lint_and_tag_noise": (5, 10),
+    "fp_prone_rules": (10, 5),
 }
 
 
 def _health_score(totals: Dict[str, int], coverage_ran: bool) -> int:
     score = 100.0
     score -= _deduct("invalid_rules", totals["invalid_rules"])
-    # Only penalize blind spots when a target list was actually supplied.
     if coverage_ran:
         score -= _deduct("uncovered_techniques", totals["uncovered_techniques"])
     score -= _deduct("duplicate_pairs", totals["duplicate_pairs"])
     score -= _deduct("untagged_rules", totals["untagged_rules"])
     score -= _deduct("lint_and_tag_noise",
                      totals["rules_with_warnings"] + totals["invalid_tags"])
+    score -= _deduct("fp_prone_rules", totals.get("fp_prone_rules", 0))
     return max(0, min(100, round(score)))
 
 
@@ -175,6 +176,7 @@ def _analyze(rules: List[Any], techniques: Optional[List[str]]) -> Dict[str, Any
     #     on any non-str/dict member). ---
     invalid: List[Dict[str, Any]] = []
     warnings: List[Dict[str, Any]] = []
+    fp_prone_list: List[Dict[str, Any]] = []
     analyzable: List[Any] = []
     for i, raw in enumerate(rules):
         rid, content = _rule_id_and_content(raw, i, dedup)
@@ -194,6 +196,8 @@ def _analyze(rules: List[Any], techniques: Optional[List[str]]) -> Dict[str, Any
             invalid.append({"rule": rid, "errors": res["errors"]})
         if res.get("warnings"):
             warnings.append({"rule": rid, "warnings": res["warnings"]})
+        if res.get("fp_warnings"):
+            fp_prone_list.append({"rule": rid, "fp_warnings": res["fp_warnings"]})
 
     # --- dedup + coverage over the ANALYZABLE subset (each is itself conservative).
     #     An empty analyzable set (every entry was junk) yields empty sub-reports
@@ -211,6 +215,9 @@ def _analyze(rules: List[Any], techniques: Optional[List[str]]) -> Dict[str, Any
 
     invalid.sort(key=lambda d: d["rule"])
     warnings.sort(key=lambda d: d["rule"])
+    # FP-prone: rules with >=2 fp_warnings (the threshold for "will likely drown a SOC").
+    fp_prone = [r for r in fp_prone_list if len(r.get("fp_warnings", [])) >= 2]
+    fp_prone.sort(key=lambda d: d["rule"])
 
     totals = {
         "invalid_rules": len(invalid),
@@ -221,10 +228,11 @@ def _analyze(rules: List[Any], techniques: Optional[List[str]]) -> Dict[str, Any
         "uncovered_techniques": len(cov_res["uncovered"]),
         "untagged_rules": len(cov_res["untagged_rules"]),
         "invalid_tags": len(cov_res["invalid_tags"]),
+        "fp_prone_rules": len(fp_prone),
     }
     score = _health_score(totals, coverage_ran)
 
-    findings = _prioritized_findings(totals, invalid, dedup_res, cov_res, coverage_ran)
+    findings = _prioritized_findings(totals, invalid, dedup_res, cov_res, coverage_ran, fp_prone)
 
     # Strip the redundant "ok" from the nested sub-results for a cleaner report.
     dedup_report = {k: v for k, v in dedup_res.items() if k != "ok"}
@@ -237,7 +245,7 @@ def _analyze(rules: List[Any], techniques: Optional[List[str]]) -> Dict[str, Any
         f"{totals['uncovered_techniques']} uncovered technique(s), "
         f"{totals['untagged_rules']} untagged."
     )
-    return {
+    result: Dict[str, Any] = {
         "ok": True,
         "rule_count": len(rules),
         "health_score": score,
@@ -248,6 +256,9 @@ def _analyze(rules: List[Any], techniques: Optional[List[str]]) -> Dict[str, Any
         "findings": findings,
         "summary": summary,
     }
+    if fp_prone:
+        result["fp_prone"] = fp_prone
+    return result
 
 
 def _rule_id_and_content(raw: Any, index: int, dedup) -> Tuple[str, str]:
@@ -303,7 +314,8 @@ def _dict_to_sigma(rule: Dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _prioritized_findings(totals, invalid, dedup_res, cov_res, coverage_ran) -> List[str]:
+def _prioritized_findings(totals, invalid, dedup_res, cov_res, coverage_ran,
+                          fp_prone=None) -> List[str]:
     """Build a worst-first, human-readable findings list. Deterministic order."""
     out: List[str] = []
     if invalid:
@@ -314,6 +326,11 @@ def _prioritized_findings(totals, invalid, dedup_res, cov_res, coverage_ran) -> 
         out.append(f"[high] {len(cov_res['uncovered'])} target technique(s) UNCOVERED "
                    f"(blind spots): " + ", ".join(cov_res["uncovered"][:15])
                    + (" …" if len(cov_res["uncovered"]) > 15 else ""))
+    if fp_prone:
+        out.append(f"[medium] {len(fp_prone)} rule(s) are FP-prone "
+                   f"(>=2 noise heuristics triggered): "
+                   + ", ".join(d["rule"] for d in fp_prone[:10])
+                   + (" …" if len(fp_prone) > 10 else ""))
     for d in dedup_res["duplicates"]:
         out.append(f"[medium] duplicate rules: {d['a']} == {d['b']} (keep one)")
     for s in dedup_res["subsumptions"]:
@@ -324,8 +341,6 @@ def _prioritized_findings(totals, invalid, dedup_res, cov_res, coverage_ran) -> 
                    + (" …" if len(cov_res["untagged_rules"]) > 10 else ""))
     if cov_res["invalid_tags"]:
         out.append(f"[low] {len(cov_res['invalid_tags'])} invalid ATT&CK tag(s)")
-    # Overlaps are informational (shared predicate, neither subsumes) — surfaced in
-    # the dedup report, not escalated to a finding.
     return out
 
 

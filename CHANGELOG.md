@@ -8,6 +8,42 @@ All notable changes to this project are documented here. The format is based on
 
 _Nothing yet._
 
+## [0.5.0] — 2026-07-20
+
+**M17 delivery: platform distribution, security hardening, architecture completion.**
+Test suite **2396 → 2435** (+39 tests); 7 PRs merged (#35–#40); fully automated
+release pipeline verified end-to-end (tag → quality gate → SBOM + SLSA → PyPI).
+
+### Fixed
+- **[CRITICAL] Wheel packaging** — tools/, mockdata/, connectors/ now ship in the
+  wheel; pip-installed users' CLI and MCP server work correctly. Tripwire tests
+  (test_packaging.py) prevent regression.
+- **[HIGH] MCP server governance bypass** — now enforces registry dual-gate: pending
+  tools excluded, control-plane tools gated behind explicit opt-in env vars.
+- **[HIGH] Agent-loop confused-deputy** — witness gate now binds the eval subject to
+  the promotion target; scoring harness A then promoting harness B is refused.
+- **PyPI release automation** — release.yml uses PYPI_API_TOKEN secret (OIDC-ready).
+
+### Added
+- **Endpoint lifecycle completion** — `update_harness_endpoint`, `promote_harness_endpoint`
+  (idempotent create-or-update), `list_harness_endpoints` (paginated). harness_ops
+  handler: +update_endpoint, +promote_endpoint, +list_endpoints actions.
+- **Gateway target lifecycle** — `list_gateway_targets`, `delete_gateway_target`,
+  `update_gateway_target`, `synchronize_gateway_targets`; `_drain_pages` helper;
+  `cleanup_gateways` now deletes targets before the gateway (no orphaned resources);
+  `list_gateways` pagination fix.
+- **Agent-loop telemetry seam** — optional tracer + log sinks (default None = same
+  deterministic behavior); span-per-call, emit_hitl_gate, emit_eval_score, refused
+  promotions counter via existing observability helpers.
+- **Agent-loop resume-contract tests** — contract-asserting fake validates the live
+  core.invoke_with_tool_results format (toolUseId 1:1, valid JSON, error 3-tuples).
+- **Agent-authored scenario + evidence** — `scenario_agent_authored_loop.py` drives 4
+  paths offline, writes `evidence/agent_authored_loop_result.json` (closed:true).
+- **tests/conftest.py** — centralized credential fallback (session-scoped, autouse);
+  POPs AWS_PROFILE, setdefaults fake creds. New tests can never accidentally hit AWS.
+- **Packaging tripwire tests** (test_packaging.py) — 10 assertions fail the build if
+  a required tree is dropped from the wheel config.
+
 ## [0.4.1] — 2026-07-20
 
 ### Fixed
